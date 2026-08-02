@@ -66,8 +66,14 @@
             https://github.com/portapack-mayhem/mayhem-firmware
         cp -r external/tinfoilhat \
             mayhem-firmware/firmware/application/external/
-        # register it: add the two source files to EXTCPPSRC and 'tinfoilhat'
-        # to EXTAPPLIST in external.cmake (see external.cmake.patch)
+        # register it in TWO firmware files:
+        #  external.cmake -> add the 2 sources to EXTCPPSRC + 'tinfoilhat' to
+        #                    EXTAPPLIST (see external.cmake.patch)
+        #  external.ld    -> add a MEMORY region  ram_external_app_tinfoilhat
+        #                    (next free 0x..0000, len 32k) AND a matching
+        #                    .external_app_tinfoilhat SECTIONS block, mirroring
+        #                    the 'level' entries. (CI does all this for you; see
+        #                    .github/workflows/build-ppma.yml for exact edits.)
         cd mayhem-firmware
         docker build -t portapack-dev -f dockerfile-nogit .
         docker run -i -v "$PWD:/havoc" portapack-dev

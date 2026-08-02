@@ -51,13 +51,14 @@ jobs:
              app/external/tinfoilhat/tinfoilhat_logic.hpp \
              "$dst/"
 
-      - name: Register the app in external.cmake
+      - name: Register the app (external.cmake + external.ld)
         run: |
           python3 - <<'PY'
-          import pathlib
+          import pathlib, re
+
+          # 1) external.cmake — source files + app-list entry
           f = pathlib.Path("mayhem/firmware/application/external/external.cmake")
           s = f.read_text()
-
           src_anchor = "external/level/ui_level.cpp\n"
           src_block = ("external/level/ui_level.cpp\n\n"
                        "\t#tinfoilhat\n"
@@ -66,15 +67,37 @@ jobs:
           if "external/tinfoilhat/main.cpp" not in s:
               assert src_anchor in s, "EXTCPPSRC level anchor not found"
               s = s.replace(src_anchor, src_block, 1)
-
-          # add to EXTAPPLIST after the 'level' line
           list_anchor = "\n\tlevel\n"
           if "\n\ttinfoilhat\n" not in s:
               assert list_anchor in s, "EXTAPPLIST level anchor not found"
               s = s.replace(list_anchor, "\n\tlevel\n\ttinfoilhat\n", 1)
-
           f.write_text(s)
           print("external.cmake registered tinfoilhat")
+
+          # 2) external.ld — dedicated MEMORY region + SECTIONS block. Each app
+          #    needs a unique 32k RAM window; pick the next free 64k slot.
+          ld = pathlib.Path("mayhem/firmware/application/external/external.ld")
+          t = ld.read_text()
+          if "ram_external_app_tinfoilhat" not in t:
+              orgs = [int(x, 16) for x in re.findall(
+                  r'ram_external_app_\w+\s+\(rwx\)\s*:\s*org\s*=\s*0x([0-9A-Fa-f]+)', t)]
+              nxt = max(orgs) + 0x10000
+              region = "    ram_external_app_tinfoilhat            (rwx) : org = 0x%08X, len = 32k\n" % nxt
+
+              m = re.search(r'    ram_external_app_level\s+\(rwx\)\s*:\s*org\s*=\s*0x[0-9A-Fa-f]+, len = 32k\n', t)
+              assert m, "level MEMORY region not found"
+              t = t[:m.end()] + region + t[m.end():]
+
+              sec_anchor = re.search(r'\}\s*>\s*ram_external_app_level\n', t)
+              assert sec_anchor, "level SECTIONS block not found"
+              sec_block = (
+                  "\n    .external_app_tinfoilhat : ALIGN(4) SUBALIGN(4)\n    {\n"
+                  "        KEEP(*(.external_app.app_tinfoilhat.application_information));\n"
+                  "        */external/tinfoilhat/*(*ui*external_app*tinfoilhat*);\n"
+                  "    } > ram_external_app_tinfoilhat\n")
+              t = t[:sec_anchor.end()] + sec_block + t[sec_anchor.end():]
+              ld.write_text(t)
+              print("external.ld registered tinfoilhat at 0x%08X" % nxt)
           PY
 
       # Cache the cmake build tree so only changed files (our app) recompile,

@@ -53,6 +53,14 @@ and flyers disagree, the flyers win.
 - **External app plugin model** (not the old `apps_nav_play` edits): a
   self-contained folder that compiles to a `.ppma` loaded from SD `/APPS/` — no
   firmware reflash. Reference/template: `external/level/` in mayhem-firmware.
+  Registration takes **two** firmware files, both automated in
+  `build-ppma.yml`: `external.cmake` (sources + app list) **and** `external.ld`
+  (a unique `ram_external_app_tinfoilhat` MEMORY region + a matching
+  `.external_app_tinfoilhat` SECTIONS block). Forgetting the `.ld` entry yields
+  an empty app image and an `IndexError` in `export_external_apps.py` at link
+  time — not a compile error.
+- **`main.cpp` include order matters:** `external_app.hpp` must be included
+  LAST (after `ui_navigation.hpp`), or `app_location_t` is undefined.
 - **Measurement** mirrors the Level app: `baseband::run_image(nfm_audio)`,
   tune `receiver_model`, read `ChannelStatistics.max_db` (already in dB — the
   design doc's `(raw/128)-90` Q1.14 math is obsolete) via a
