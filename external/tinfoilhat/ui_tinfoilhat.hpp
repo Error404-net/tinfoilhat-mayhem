@@ -36,10 +36,8 @@ static constexpr uint8_t SETTLE_MSGS = 3;   // stat windows to skip after retune
 static constexpr uint8_t AVG_MSGS = 4;      // stat windows to average per freq
 static constexpr float CALIBRATION_OFFSET_DB = 0.f;
 
-// On-device chart styles. Kept to the two bar styles (one code path) to fit the
-// 32KB external-app cap; the web viewer has line-overlay + table + export too.
-enum class DisplayMode : int32_t { DualBars = 0, Attenuation = 1 };
-static constexpr int32_t DISPLAY_MODE_COUNT = 2;
+// On-device chart is the dual-bar before/after only, to fit the 32KB
+// external-app cap; attenuation/line-overlay/table + export are in the web viewer.
 
 // One completed test: the active frequency list + per-freq results + metadata.
 struct TestData {
@@ -57,18 +55,15 @@ class ChartWidget : public Widget {
     ChartWidget(Rect parent_rect);
 
     void set_data(const TestData* primary);
-    void set_mode(DisplayMode mode);
 
     void paint(Painter& painter) override;
     bool on_encoder(const EncoderEvent delta) override;
 
    private:
     const TestData* primary_{nullptr};
-    DisplayMode mode_{DisplayMode::DualBars};
     size_t scroll_{0};  // first visible frequency index
 
     size_t visible_columns() const;
-    void draw_bars(Painter& painter, bool dual);
 };
 
 // ── Shared helpers (defined in .cpp) ────────────────────────────────────────
@@ -89,8 +84,8 @@ class TinfoilHatMenuView : public View {
    private:
     NavigationView& nav_;
 
-    Text title_{{0, 24, screen_width, 16}, "TINFOIL HAT COMPETITION"};
-    Button btn_start_{{16, 60, screen_width - 32, 30}, "Start New Test"};
+    Text title_{{0, 24, screen_width, 16}, "TINFOIL HAT"};
+    Button btn_start_{{16, 60, screen_width - 32, 30}, "Start Test"};
     Button btn_grading_{{16, 100, screen_width - 32, 30}, "Leaderboard"};
     Button btn_settings_{{16, 140, screen_width - 32, 30}, "Settings"};
     Button btn_back_{{16, 220, screen_width - 32, 30}, "Back"};
@@ -169,12 +164,6 @@ class TinfoilHatResultsView : public View {
    private:
     NavigationView& nav_;
     TestData data_;
-    int32_t display_mode_{0};
-
-    app_settings::SettingsManager settings_{
-        "tinfoilhat",
-        app_settings::Mode::RX,
-        {{"display_mode"sv, &display_mode_}}};
 
     void refresh_summary();
 
@@ -183,9 +172,8 @@ class TinfoilHatResultsView : public View {
     Text lbl_name_{{0, 20, screen_width, 16}, ""};
     Text lbl_avg_{{0, 42, screen_width, 16}, ""};
     ChartWidget chart_{{0, 90, screen_width, 156}};
-    Button btn_mode_{{8, 258, 104, 30}, "View: Bars"};
     Text lbl_saved_{{0, 294, screen_width, 16}, ""};
-    Button btn_done_{{128, 258, 104, 30}, "Done"};
+    Button btn_done_{{16, 258, screen_width - 32, 30}, "Done"};
 };
 
 // (On-device head-to-head compare removed to fit the 32KB external-app cap —
@@ -234,7 +222,6 @@ class TinfoilHatSettingsView : public View {
     int32_t lna_gain_{32};
     int32_t vga_gain_{32};
     int32_t rf_amp_{0};
-    int32_t display_mode_{0};
     int32_t freq_set_{0};
 
     app_settings::SettingsManager settings_{
@@ -243,15 +230,13 @@ class TinfoilHatSettingsView : public View {
         {{"lna"sv, &lna_gain_},
          {"vga"sv, &vga_gain_},
          {"amp"sv, &rf_amp_},
-         {"display_mode"sv, &display_mode_},
          {"freq_set"sv, &freq_set_}}};
 
     Labels labels_{
         {{2 * 8, 40}, "LNA:", Theme::getInstance()->fg_light->foreground},
         {{2 * 8, 64}, "VGA:", Theme::getInstance()->fg_light->foreground},
         {{2 * 8, 88}, "AMP:", Theme::getInstance()->fg_light->foreground},
-        {{2 * 8, 120}, "Display:", Theme::getInstance()->fg_light->foreground},
-        {{2 * 8, 152}, "Freqs:", Theme::getInstance()->fg_light->foreground}};
+        {{2 * 8, 120}, "Set:", Theme::getInstance()->fg_light->foreground}};
 
     // LNA 0-40 (step 8), VGA 0-62 (step 2) — HackRF gain grids.
     NumberField field_lna_{{8 * 8, 40}, 3, {0, 40}, 8, ' '};
@@ -260,12 +245,8 @@ class TinfoilHatSettingsView : public View {
         {8 * 8, 88},
         7,
         {{"off", 0}, {"on +14dB", 14}}};
-    OptionsField field_display_{
-        {10 * 8, 120},
-        12,
-        {{"Dual bars", 0}, {"Attenuation", 1}}};
     OptionsField field_freqset_{
-        {8 * 8, 152},
+        {8 * 8, 120},
         14,
         {{"Full (50)", 0}, {"Fast (12)", 1}}};
     Button btn_back_{{16, 286, screen_width - 32, 28}, "Back"};

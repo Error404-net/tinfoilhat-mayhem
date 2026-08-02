@@ -119,14 +119,8 @@ void ChartWidget::set_data(const TestData* primary) {
     set_dirty();
 }
 
-void ChartWidget::set_mode(DisplayMode mode) {
-    mode_ = mode;
-    set_dirty();
-}
-
 size_t ChartWidget::visible_columns() const {
-    int colw = (mode_ == DisplayMode::DualBars) ? 14 : 10;
-    size_t v = screen_rect().width() / colw;
+    size_t v = screen_rect().width() / 14;
     return v ? v : 1;
 }
 
@@ -149,63 +143,31 @@ void ChartWidget::paint(Painter& painter) {
                             Color::white(), Color::black(), "No data");
         return;
     }
-    draw_bars(painter, mode_ == DisplayMode::DualBars);
-}
-
-// dBm range shown for baseline/hat bars and overlay.
-static constexpr float DB_LO = -110.f;
-static constexpr float DB_HI = -10.f;
-// attenuation range for the attenuation bars.
-static constexpr float ATT_LO = -20.f;
-static constexpr float ATT_HI = 40.f;
-
-void ChartWidget::draw_bars(Painter& painter, bool dual) {
-    const auto r = screen_rect();
+    // Dual bars: baseline (grey) vs hat (green) per frequency.
     const int bottom = r.bottom() - 12;  // room for x labels
-    const int top = r.top() + 2;
-    const int h = bottom - top;
+    const int h = bottom - (r.top() + 2);
     const size_t n = primary_->results.size();
     const size_t vis = visible_columns();
     const int colw = r.width() / (int)vis;
+    const float DB_LO = -110.f, DB_HI = -10.f;
 
     auto y_db = [&](float db) {
         float t = (db - DB_LO) / (DB_HI - DB_LO);
         t = std::max(0.f, std::min(1.f, t));
         return bottom - (int)(t * h);
     };
-    auto y_att = [&](float a) {
-        float t = (a - ATT_LO) / (ATT_HI - ATT_LO);
-        t = std::max(0.f, std::min(1.f, t));
-        return bottom - (int)(t * h);
-    };
-    const int zero_y = y_att(0.f);
-
-    if (!dual)
-        painter.draw_hline({r.left(), zero_y}, r.width(), Color(80, 80, 80));
 
     for (size_t c = 0; c < vis; ++c) {
         size_t i = scroll_ + c;
         if (i >= n) break;
         const int x = r.left() + (int)c * colw;
         const auto& s = primary_->results[i];
+        const int bw = colw / 2 - 1;
+        const int yb = y_db(s.baseline_db);
+        const int yh = y_db(s.hat_db);
+        painter.fill_rectangle({x + 1, yb, bw, bottom - yb}, Color(120, 120, 120));
+        painter.fill_rectangle({x + 1 + bw, yh, bw, bottom - yh}, Color::green());
 
-        if (dual) {
-            const int bw = colw / 2 - 1;
-            const int yb = y_db(s.baseline_db);
-            const int yh = y_db(s.hat_db);
-            painter.fill_rectangle({x + 1, yb, bw, bottom - yb}, Color(120, 120, 120));
-            painter.fill_rectangle({x + 1 + bw, yh, bw, bottom - yh}, Color::green());
-        } else {
-            const float a = s.attenuation();
-            const int ya = y_att(a);
-            const Color col = a >= 0 ? Color::green() : Color::red();
-            const int y0 = std::min(ya, zero_y);
-            int hh = std::abs(zero_y - ya);
-            if (hh < 1) hh = 1;
-            painter.fill_rectangle({x + 2, y0, colw - 3, hh}, col);
-        }
-
-        // sparse x-axis labels (every 2nd column) to avoid clutter
         if ((c % 2) == 0) {
             painter.draw_string({x, bottom + 1}, font::fixed_8x16, Color(150, 150, 150),
                                 Color::black(), to_string_dec_uint(primary_->freqs[i]));
@@ -272,7 +234,7 @@ void TinfoilHatScanView::tune_current() {
     settle_count_ = 0;
     avg_count_ = 0;
     avg_accum_ = 0;
-    lbl_freq_.set("Freq: " + to_string_dec_uint(data_.freqs[idx_]) + " MHz");
+    lbl_freq_.set("F " + to_string_dec_uint(data_.freqs[idx_]) + "M");
 }
 
 void TinfoilHatScanView::begin_phase(bool baseline) {
@@ -316,7 +278,7 @@ void TinfoilHatScanView::on_stats(const ChannelStatistics& stats) {
     }
     avg_accum_ += stats.max_db;
     avg_count_++;
-    lbl_power_.set("Power: " + to_string_dec_int(stats.max_db) + " dB");
+    lbl_power_.set("P " + to_string_dec_int(stats.max_db) + "dB");
     if (avg_count_ < AVG_MSGS) return;
 
     const float avg = apply_calibration(avg_accum_ / (int)AVG_MSGS);
@@ -360,57 +322,45 @@ void TinfoilHatScanView::update_ui_for_step() {
 
     switch (step_) {
         case Step::Setup:
-            lbl_step_.set("STEP 1 OF 2: BASELINE");
-            lbl_prompt1_.set("Remove hat from mannequin.");
-            lbl_prompt2_.set("Pick category, press OK.");
+            lbl_step_.set("1/2 BASELINE");
+            lbl_prompt1_.set("Remove hat.");
+            lbl_prompt2_.set("Pick cat, OK.");
             break;
         case Step::ScanBaseline:
-            lbl_step_.set("SCANNING BASELINE...");
+            lbl_step_.set("SCAN BASELINE");
             break;
         case Step::HatPrompt:
-            lbl_step_.set("STEP 2 OF 2: HAT SCAN");
-            lbl_prompt1_.set("Place hat on mannequin.");
-            lbl_prompt2_.set("Press OK to scan.");
+            lbl_step_.set("2/2 HAT SCAN");
+            lbl_prompt1_.set("Place hat on head.");
+            lbl_prompt2_.set("Press OK.");
             break;
         case Step::ScanHat:
-            lbl_step_.set("SCANNING HAT...");
+            lbl_step_.set("SCAN HAT");
             break;
         case Step::Done:
-            lbl_step_.set("SCAN COMPLETE");
+            lbl_step_.set("DONE");
             lbl_prompt1_.set("Test finished.");
-            lbl_prompt2_.set("Press OK for results.");
+            lbl_prompt2_.set("OK = results.");
             break;
     }
     set_dirty();
 }
 
 // ── Results / chart viewer ──────────────────────────────────────────────────
-static const char* mode_label(int32_t m) {
-    return (DisplayMode)m == DisplayMode::DualBars ? "View: Bars" : "View: Atten";
-}
-
 TinfoilHatResultsView::TinfoilHatResultsView(NavigationView& nav, TestData data, bool save)
     : nav_{nav}, data_{std::move(data)} {
-    add_children({&lbl_name_, &lbl_avg_, &chart_, &btn_mode_, &lbl_saved_, &btn_done_});
+    add_children({&lbl_name_, &lbl_avg_, &chart_, &lbl_saved_, &btn_done_});
 
     chart_.set_data(&data_);
-    chart_.set_mode((DisplayMode)display_mode_);
-    btn_mode_.set_text(mode_label(display_mode_));
 
     if (save) {
         std::string fname = save_test_csv(data_);
-        lbl_saved_.set(fname.empty() ? "SAVE FAILED" : ("Saved: " + fname));
+        lbl_saved_.set(fname.empty() ? "SAVE FAIL" : ("Saved: " + fname));
     } else {
         lbl_saved_.set(data_.contestant);
     }
 
     refresh_summary();
-
-    btn_mode_.on_select = [this](Button&) {
-        display_mode_ = (display_mode_ + 1) % DISPLAY_MODE_COUNT;
-        chart_.set_mode((DisplayMode)display_mode_);
-        btn_mode_.set_text(mode_label(display_mode_));
-    };
     btn_done_.on_select = [this](Button&) { nav_.pop(); };
 }
 
@@ -420,7 +370,7 @@ void TinfoilHatResultsView::focus() {
 
 void TinfoilHatResultsView::refresh_summary() {
     lbl_name_.set(data_.contestant + " [" + data_.category + "]");
-    lbl_avg_.set("Avg atten: " + to_string_dec_int((int)thl::mean_attenuation(data_.results)) + " dB");
+    lbl_avg_.set("Avg " + to_string_dec_int((int)thl::mean_attenuation(data_.results)) + "dB");
     // (per-band + best/worst live in the CSV and the web viewer)
 }
 
@@ -486,19 +436,17 @@ void TinfoilHatGradingView::on_select(size_t i) {
 // ── Settings ────────────────────────────────────────────────────────────────
 TinfoilHatSettingsView::TinfoilHatSettingsView(NavigationView& nav)
     : nav_{nav} {
-    add_children({&labels_, &field_lna_, &field_vga_, &field_amp_, &field_display_,
+    add_children({&labels_, &field_lna_, &field_vga_, &field_amp_,
                   &field_freqset_, &btn_back_});
 
     field_lna_.set_value(lna_gain_);
     field_vga_.set_value(vga_gain_);
     field_amp_.set_by_value(rf_amp_);
-    field_display_.set_by_value(display_mode_);
     field_freqset_.set_by_value(freq_set_);
 
     field_lna_.on_change = [this](int32_t v) { lna_gain_ = v; };
     field_vga_.on_change = [this](int32_t v) { vga_gain_ = v; };
     field_amp_.on_change = [this](size_t, OptionsField::value_t v) { rf_amp_ = v; };
-    field_display_.on_change = [this](size_t, OptionsField::value_t v) { display_mode_ = v; };
     field_freqset_.on_change = [this](size_t, OptionsField::value_t v) { freq_set_ = v; };
 
     btn_back_.on_select = [this](Button&) { nav_.pop(); };
