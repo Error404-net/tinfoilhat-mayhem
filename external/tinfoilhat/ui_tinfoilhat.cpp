@@ -8,7 +8,6 @@
 #include "rtc_time.hpp"
 #include "string_format.hpp"
 #include "ui_font_fixed_8x16.hpp"
-#include "ui_textentry.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -150,12 +149,7 @@ void ChartWidget::paint(Painter& painter) {
                             Color::white(), Color::black(), "No data");
         return;
     }
-    switch (mode_) {
-        case DisplayMode::DualBars: draw_bars(painter, true); break;
-        case DisplayMode::Attenuation: draw_bars(painter, false); break;
-        case DisplayMode::Overlay: draw_overlay(painter); break;
-        case DisplayMode::Table: draw_table(painter); break;
-    }
+    draw_bars(painter, mode_ == DisplayMode::DualBars);
 }
 
 // dBm range shown for baseline/hat bars and overlay.
@@ -219,74 +213,12 @@ void ChartWidget::draw_bars(Painter& painter, bool dual) {
     }
 }
 
-void ChartWidget::draw_overlay(Painter& painter) {
-    // Single-run before/after as two line traces (baseline grey, hat green).
-    const auto r = screen_rect();
-    const int bottom = r.bottom() - 12;
-    const int h = bottom - (r.top() + 2);
-    const size_t vis = visible_columns();
-    const int colw = r.width() / (int)vis;
-    const size_t n = primary_->results.size();
-
-    auto y_db = [&](float db) {
-        float t = (db - DB_LO) / (DB_HI - DB_LO);
-        t = std::max(0.f, std::min(1.f, t));
-        return bottom - (int)(t * h);
-    };
-    auto trace = [&](bool baseline, Color col) {
-        int prev_x = -1, prev_y = 0;
-        for (size_t c = 0; c < vis; ++c) {
-            size_t i = scroll_ + c;
-            if (i >= n) break;
-            const int x = r.left() + (int)c * colw + colw / 2;
-            const auto& s = primary_->results[i];
-            const int y = y_db(baseline ? s.baseline_db : s.hat_db);
-            painter.fill_rectangle({x - 1, y - 1, 3, 3}, col);
-            if (prev_x >= 0) {
-                const int y0 = std::min(prev_y, y);
-                int hh = std::abs(y - prev_y);
-                if (hh < 1) hh = 1;
-                painter.draw_vline({(prev_x + x) / 2, y0}, hh, col);
-            }
-            prev_x = x;
-            prev_y = y;
-        }
-    };
-    trace(true, Color(120, 120, 120));
-    trace(false, Color::green());
-}
-
-void ChartWidget::draw_table(Painter& painter) {
-    const auto r = screen_rect();
-    const size_t n = primary_->results.size();
-    const int row_h = 16;
-    int y = r.top();
-    painter.draw_string({r.left(), y}, font::fixed_8x16, Color::cyan(), Color::black(),
-                        "FREQ   BASE  HAT   dB");
-    y += row_h;
-    const int rows = (r.height() / row_h) - 1;
-    for (int rr = 0; rr < rows; ++rr) {
-        size_t i = scroll_ + (size_t)rr;
-        if (i >= n) break;
-        const auto& s = primary_->results[i];
-        std::string line =
-            to_string_dec_uint(primary_->freqs[i], 5) + " " +
-            to_string_dec_int((int)s.baseline_db, 5, ' ') + " " +
-            to_string_dec_int((int)s.hat_db, 5, ' ') + " " +
-            to_string_dec_int((int)s.attenuation(), 4, ' ');
-        const Color col = s.attenuation() >= 0 ? Color::white() : Color::red();
-        painter.draw_string({r.left(), y}, font::fixed_8x16, col, Color::black(), line);
-        y += row_h;
-    }
-}
-
 // ── Menu (entry) ────────────────────────────────────────────────────────────
 TinfoilHatMenuView::TinfoilHatMenuView(NavigationView& nav)
     : nav_{nav} {
-    add_children({&title_, &btn_start_, &btn_review_, &btn_grading_, &btn_settings_, &btn_back_});
+    add_children({&title_, &btn_start_, &btn_grading_, &btn_settings_, &btn_back_});
 
     btn_start_.on_select = [this](Button&) { nav_.push<TinfoilHatScanView>(); };
-    btn_review_.on_select = [this](Button&) { nav_.push<TinfoilHatReviewView>(); };
     btn_grading_.on_select = [this](Button&) { nav_.push<TinfoilHatGradingView>(); };
     btn_settings_.on_select = [this](Button&) { nav_.push<TinfoilHatSettingsView>(); };
     btn_back_.on_select = [this](Button&) { nav_.pop(); };
@@ -454,12 +386,7 @@ void TinfoilHatScanView::update_ui_for_step() {
 
 // ── Results / chart viewer ──────────────────────────────────────────────────
 static const char* mode_label(int32_t m) {
-    switch ((DisplayMode)m) {
-        case DisplayMode::DualBars: return "View: Bars";
-        case DisplayMode::Attenuation: return "View: Atten";
-        case DisplayMode::Overlay: return "View: Lines";
-        default: return "View: Table";
-    }
+    return (DisplayMode)m == DisplayMode::DualBars ? "View: Bars" : "View: Atten";
 }
 
 TinfoilHatResultsView::TinfoilHatResultsView(NavigationView& nav, TestData data, bool save)
@@ -495,60 +422,6 @@ void TinfoilHatResultsView::refresh_summary() {
     lbl_name_.set(data_.contestant + " [" + data_.category + "]");
     lbl_avg_.set("Avg atten: " + to_string_dec_int((int)thl::mean_attenuation(data_.results)) + " dB");
     // (per-band + best/worst live in the CSV and the web viewer)
-}
-
-// ── Review ──────────────────────────────────────────────────────────────────
-TinfoilHatReviewView::TinfoilHatReviewView(NavigationView& nav)
-    : nav_{nav} {
-    add_children({&lbl_title_, &menu_, &btn_rename_, &btn_back_});
-    btn_rename_.on_select = [this](Button&) { rename_selected(menu_.highlighted_index()); };
-    btn_back_.on_select = [this](Button&) { nav_.pop(); };
-    reload();
-}
-
-void TinfoilHatReviewView::focus() {
-    if (files_.empty())
-        btn_back_.focus();
-    else
-        menu_.focus();
-}
-
-void TinfoilHatReviewView::reload() {
-    menu_.clear();
-    files_ = scan_root_files(u"TESTS", u"*.csv");
-    for (size_t i = 0; i < files_.size(); ++i) {
-        std::string label = files_[i].filename().string();
-        menu_.add_item({label, Color::white(), nullptr,
-                        [this, i](KeyEvent) { open_selected(i); }});
-    }
-    if (files_.empty())
-        lbl_title_.set("REVIEW: no results yet");
-    else
-        lbl_title_.set("REVIEW RESULTS (sel=open)");
-    set_dirty();
-}
-
-void TinfoilHatReviewView::open_selected(size_t i) {
-    if (i >= files_.size()) return;
-    TestData data;
-    if (!load_test_csv(in_tests(files_[i]), data)) return;
-    nav_.push<TinfoilHatResultsView>(std::move(data), false);
-}
-
-void TinfoilHatReviewView::rename_selected(size_t i) {
-    if (i >= files_.size()) return;
-    TestData data;
-    if (!load_test_csv(in_tests(files_[i]), data)) return;
-    rename_buffer_ = data.contestant;
-    const auto path = in_tests(files_[i]);
-    text_prompt(nav_, rename_buffer_, 28, ENTER_KEYBOARD_MODE_ALPHA,
-                [this, path](std::string& name) {
-                    TestData d;
-                    if (!load_test_csv(path, d)) return;
-                    d.contestant = name;
-                    write_csv(path, d);
-                    reload();
-                });
 }
 
 // ── Grading / leaderboard ───────────────────────────────────────────────────

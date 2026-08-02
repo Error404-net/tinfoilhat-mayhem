@@ -36,8 +36,10 @@ static constexpr uint8_t SETTLE_MSGS = 3;   // stat windows to skip after retune
 static constexpr uint8_t AVG_MSGS = 4;      // stat windows to average per freq
 static constexpr float CALIBRATION_OFFSET_DB = 0.f;
 
-enum class DisplayMode : int32_t { DualBars = 0, Attenuation = 1, Overlay = 2, Table = 3 };
-static constexpr int32_t DISPLAY_MODE_COUNT = 4;
+// On-device chart styles. Kept to the two bar styles (one code path) to fit the
+// 32KB external-app cap; the web viewer has line-overlay + table + export too.
+enum class DisplayMode : int32_t { DualBars = 0, Attenuation = 1 };
+static constexpr int32_t DISPLAY_MODE_COUNT = 2;
 
 // One completed test: the active frequency list + per-freq results + metadata.
 struct TestData {
@@ -67,8 +69,6 @@ class ChartWidget : public Widget {
 
     size_t visible_columns() const;
     void draw_bars(Painter& painter, bool dual);
-    void draw_overlay(Painter& painter);
-    void draw_table(Painter& painter);
 };
 
 // ── Shared helpers (defined in .cpp) ────────────────────────────────────────
@@ -90,10 +90,9 @@ class TinfoilHatMenuView : public View {
     NavigationView& nav_;
 
     Text title_{{0, 24, screen_width, 16}, "TINFOIL HAT COMPETITION"};
-    Button btn_start_{{16, 56, screen_width - 32, 30}, "Start New Test"};
-    Button btn_review_{{16, 92, screen_width - 32, 30}, "Review Results"};
-    Button btn_grading_{{16, 128, screen_width - 32, 30}, "Grading / Leaderboard"};
-    Button btn_settings_{{16, 164, screen_width - 32, 30}, "Settings"};
+    Button btn_start_{{16, 60, screen_width - 32, 30}, "Start New Test"};
+    Button btn_grading_{{16, 100, screen_width - 32, 30}, "Leaderboard"};
+    Button btn_settings_{{16, 140, screen_width - 32, 30}, "Settings"};
     Button btn_back_{{16, 220, screen_width - 32, 30}, "Back"};
 };
 
@@ -192,27 +191,8 @@ class TinfoilHatResultsView : public View {
 // (On-device head-to-head compare removed to fit the 32KB external-app cap —
 //  the companion web viewer does multi-run compare via row multi-select.)
 
-// ── Review (list saved CSVs) ────────────────────────────────────────────────
-class TinfoilHatReviewView : public View {
-   public:
-    TinfoilHatReviewView(NavigationView& nav);
-    void focus() override;
-    std::string title() const override { return "TinfoilHat"; }
-
-   private:
-    NavigationView& nav_;
-    std::vector<std::filesystem::path> files_;
-    std::string rename_buffer_;
-
-    void reload();
-    void open_selected(size_t i);
-    void rename_selected(size_t i);
-
-    Text lbl_title_{{0, 16, screen_width, 16}, "REVIEW RESULTS"};
-    MenuView menu_{{0, 40, screen_width, 236}, true};
-    Button btn_rename_{{8, 284, 104, 30}, "Rename"};
-    Button btn_back_{{128, 284, 104, 30}, "Back"};
-};
+// (Review+rename removed to fit the 32KB cap — open a saved run from the
+//  Leaderboard, and use the web viewer for full review/rename.)
 
 // ── Grading / leaderboard (Classic vs Hybrid, best per contestant) ──────────
 class TinfoilHatGradingView : public View {
@@ -283,7 +263,7 @@ class TinfoilHatSettingsView : public View {
     OptionsField field_display_{
         {10 * 8, 120},
         12,
-        {{"Dual bars", 0}, {"Attenuation", 1}, {"Overlay", 2}, {"Table", 3}}};
+        {{"Dual bars", 0}, {"Attenuation", 1}}};
     OptionsField field_freqset_{
         {8 * 8, 152},
         14,

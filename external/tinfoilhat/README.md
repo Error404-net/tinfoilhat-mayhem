@@ -87,18 +87,18 @@
      START NEW TEST   pick category (Classic/Hybrid), remove hat, OK to sweep
                       baseline, put hat on the mannequin, OK to sweep again.
                       Auto-saves TESTS/TH_####.csv and shows the chart.
-     REVIEW RESULTS   list every saved run, open to view/scroll, Rename to
-                      tag a run with a contestant name.
-     GRADING          leaderboard, best run per contestant, Classic & Hybrid
-                      ranked SEPARATELY. Select two -> head-to-head overlay.
+     LEADERBOARD      best run per contestant, Classic & Hybrid ranked
+                      SEPARATELY. Select a row to open that run's chart.
      SETTINGS         RF gain (LNA/VGA/AMP), default chart style, freq set
                       (Full 50 / Fast 12). Persists to SD.
 
-     CHART STYLES (cycle on results, default in settings):
+     ON-DEVICE CHART STYLES (cycle on results, default in settings):
         Dual bars ... baseline vs hat, side by side   ( the before/after )
         Attenuation . one bar per freq, green up / red down (amplified)
-        Overlay ..... baseline & hat as line traces
-        Table ....... exact numbers, scrollable
+
+     ...line-overlay, numeric table, per-run review/rename, and head-to-head
+     compare live in the companion WEB VIEWER (0x05) — trimmed on-device to fit
+     Mayhem's hard 32KB external-app limit.
 
      SCORE BANDS:  HF 2-30 . VHF 30-300 . UHF 300-3000 . SHF 3000-5900 (MHz)
 
