@@ -2,7 +2,7 @@
  * Tinfoil Hat Competition — Mayhem external app registration.
  *
  * Builds to tinfoilhat.ppma. Copy it to the SD card's /APPS/ folder; it appears
- * in the RX menu. No firmware reflash required.
+ * in the Games menu. No firmware reflash required.
  */
 // Include order matters: external_app.hpp must come LAST. It depends on
 // app_location_t (from standalone_app.hpp) which only gets pulled in through
@@ -49,7 +49,7 @@ application_information_t _application_information_tinfoilhat = {
         0x00, 0x00,
         0x00, 0x00},
     /*.icon_color = */ ui::Color::grey().v,
-    /*.menu_location = */ app_location_t::RX,
+    /*.menu_location = */ app_location_t::GAMES,
     /*.desired_menu_position = */ -1,
 
     /*.m4_app_tag = */ {'P', 'N', 'F', 'M'},  // NFM audio baseband (RSSI source)

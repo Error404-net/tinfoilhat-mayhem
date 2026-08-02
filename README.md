@@ -48,7 +48,7 @@
         tinfoilhat.ppma  →  /APPS/   on your PortaPack SD card
         viewer.html      →  /TESTS/  on your PortaPack SD card
 
-     Boot → RX menu → "Tinfoil Hat"
+     Boot → Games menu → "Tinfoil Hat"
 
      That's it. No toolchain. No reflash. Drop and go.
      .ppma is portable to any PortaPack on a compatible Mayhem nightly.

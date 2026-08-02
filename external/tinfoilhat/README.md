@@ -43,7 +43,7 @@
         1.  Grab tinfoilhat.ppma  (from the GitHub Release, the CI build
             artifact, or build it yourself -> section 0x03)
         2.  Drop it into the  /APPS/  folder on your PortaPack SD card
-        3.  Eject, boot, open the  RX  menu -> "Tinfoil Hat"
+        3.  Eject, boot, open the  Games  menu -> "Tinfoil Hat"
 
      That's it. No reflash. No toolchain. One file, one folder.
      .ppma is portable to any device on a compatible Mayhem nightly.
@@ -84,17 +84,13 @@
   ║  0x04 .. USiNG iT                                                      ║
   ╚════════════════════════════════════════════════════════════════════════╝
 
-     START NEW TEST   pick category (Classic/Hybrid), remove hat, OK to sweep
-                      baseline, put hat on the mannequin, OK to sweep again.
-                      Auto-saves TESTS/TH_####.csv and shows the chart.
-     LEADERBOARD      best run per contestant, Classic & Hybrid ranked
-                      SEPARATELY. Select a row to open that run's chart.
-     SETTINGS         RF gain (LNA/VGA/AMP), default chart style, freq set
-                      (Full 50 / Fast 12). Persists to SD.
-
-     ON-DEVICE CHART STYLES (cycle on results, default in settings):
-        Dual bars ... baseline vs hat, side by side   ( the before/after )
-        Attenuation . one bar per freq, green up / red down (amplified)
+     START TEST     pick category (Classic/Hybrid), remove hat, OK for
+                    baseline sweep → place hat, OK for hat sweep.
+                    auto-saves TESTS/TH_####.csv and shows the chart.
+     LEADERBOARD    best run per contestant, Classic & Hybrid ranked
+                    separately. select a row to open that run's chart.
+     SETTINGS       RF gain (LNA/VGA/AMP), freq set (Full 50 / Fast 12).
+                    persists to SD automatically.
 
      ...line-overlay, numeric table, per-run review/rename, and head-to-head
      compare live in the companion WEB VIEWER (0x05) — trimmed on-device to fit
