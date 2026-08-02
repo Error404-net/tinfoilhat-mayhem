@@ -29,6 +29,8 @@ service-account*.json
 build/
 out/
 dist/
+release/
+package/
 *.o
 *.obj
 *.elf
