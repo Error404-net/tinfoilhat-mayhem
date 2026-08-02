@@ -1,0 +1,113 @@
+name: Build tinfoilhat.ppma
+
+# Auto-builds the installable Mayhem external app (tinfoilhat.ppma) by dropping
+# this app into a mayhem-firmware checkout and running their Docker build.
+# - Every push/PR: builds and uploads the .ppma as a workflow artifact.
+# - Tag push (v*): also attaches the .ppma to a GitHub Release.
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      firmware_ref:
+        description: "mayhem-firmware branch/tag to build against"
+        default: "next"
+
+env:
+  FW_REF: next  # pinned mayhem-firmware ref; override via workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this app
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Resolve firmware ref
+        id: ref
+        run: echo "ref=${{ github.event.inputs.firmware_ref || env.FW_REF }}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout mayhem-firmware (${{ steps.ref.outputs.ref }})
+        uses: actions/checkout@v4
+        with:
+          repository: portapack-mayhem/mayhem-firmware
+          ref: ${{ steps.ref.outputs.ref }}
+          submodules: recursive
+          path: mayhem
+
+      - name: Graft the app into the firmware tree
+        run: |
+          set -euo pipefail
+          dst=mayhem/firmware/application/external/tinfoilhat
+          mkdir -p "$dst"
+          cp app/external/tinfoilhat/main.cpp \
+             app/external/tinfoilhat/ui_tinfoilhat.cpp \
+             app/external/tinfoilhat/ui_tinfoilhat.hpp \
+             app/external/tinfoilhat/tinfoilhat_logic.hpp \
+             "$dst/"
+
+      - name: Register the app in external.cmake
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          f = pathlib.Path("mayhem/firmware/application/external/external.cmake")
+          s = f.read_text()
+
+          src_anchor = "external/level/ui_level.cpp\n"
+          src_block = ("external/level/ui_level.cpp\n\n"
+                       "\t#tinfoilhat\n"
+                       "\texternal/tinfoilhat/main.cpp\n"
+                       "\texternal/tinfoilhat/ui_tinfoilhat.cpp\n")
+          if "external/tinfoilhat/main.cpp" not in s:
+              assert src_anchor in s, "EXTCPPSRC level anchor not found"
+              s = s.replace(src_anchor, src_block, 1)
+
+          # add to EXTAPPLIST after the 'level' line
+          list_anchor = "\n\tlevel\n"
+          if "\n\ttinfoilhat\n" not in s:
+              assert list_anchor in s, "EXTAPPLIST level anchor not found"
+              s = s.replace(list_anchor, "\n\tlevel\n\ttinfoilhat\n", 1)
+
+          f.write_text(s)
+          print("external.cmake registered tinfoilhat")
+          PY
+
+      - name: Build Docker image
+        working-directory: mayhem
+        run: docker build -t portapack-dev -f dockerfile-nogit .
+
+      - name: Compile firmware (produces the .ppma)
+        working-directory: mayhem
+        run: |
+          mkdir -p build
+          docker run -e VERSION_STRING=ci_$(date +%y%m%d) -i \
+            -v "${{ github.workspace }}/mayhem:/havoc" portapack-dev
+
+      - name: Collect tinfoilhat.ppma + web viewer
+        run: |
+          set -euo pipefail
+          src=$(find mayhem/build/firmware/application -name 'tinfoilhat.ppma' | head -1)
+          test -n "$src"
+          mkdir -p out
+          cp "$src" out/tinfoilhat.ppma
+          cp app/external/tinfoilhat/viewer.html out/viewer.html  # drop next to CSVs in SD /TESTS/
+          ls -l out
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinfoilhat-ppma
+          path: out/*
+
+      - name: Attach to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/tinfoilhat.ppma
+            out/viewer.html

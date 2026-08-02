@@ -1,0 +1,21 @@
+--- a/firmware/application/external/external.cmake
++++ b/firmware/application/external/external.cmake
+@@ EXTCPPSRC: register the source files (near the 'level' entry) @@
+ 	#level  24 byte
+ 	external/level/main.cpp
+ 	external/level/ui_level.cpp
+
++	#tinfoilhat
++	external/tinfoilhat/main.cpp
++	external/tinfoilhat/ui_tinfoilhat.cpp
++
+ 	#gfxEQ 80 byte
+ 	external/gfxeq/main.cpp
+ 	external/gfxeq/ui_gfxeq.cpp
+@@ EXTAPPLIST: register the app name (near the 'level' entry) @@
+ 	scanner
+ 	level
++	tinfoilhat
+ 	gfxeq
+ 	waterfall_designer
+ 	detector_rx

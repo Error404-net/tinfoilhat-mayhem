@@ -1,0 +1,56 @@
+# ── Internal source material (not shipped in the public app repo) ────────────
+App-overview.md
+*_flyer.html
+*flyer*.html
+
+# ── Secrets / credentials (never commit) ─────────────────────────────────────
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+*.keystore
+credentials
+credentials.*
+secrets.*
+.netrc
+.npmrc
+*.token
+*_token
+aws.json
+.aws/
+gcp-*.json
+service-account*.json
+
+# ── Build / compiled artifacts ───────────────────────────────────────────────
+build/
+out/
+dist/
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+*.ppma
+*.ppmp
+a.out
+thtest
+/tmp/thtest
+
+# ── Environment / tooling ────────────────────────────────────────────────────
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ── Editor / OS cruft ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/

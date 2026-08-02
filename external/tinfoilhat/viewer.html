@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<!--
+  Tinfoil Hat Competition — companion results viewer.
+  Drop this file into the SD card's /TESTS/ folder (next to the TH_####.csv
+  files) and open it in a browser. Self-contained: no internet, no CDN, no
+  server. Load results via "Open TESTS folder" (Chrome/Edge) or "Add CSV files".
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TINFOIL HAT :: RESULTS VIEWER</title>
+<style>
+  :root { --g:#33ff33; --g2:#99ee99; --dim:#1c661c; --bg:#000; --panel:#0a0f0a; --red:#ff5555; --cyan:#33dddd; }
+  * { box-sizing: border-box; }
+  body { background:var(--bg); color:var(--g); font-family:"Share Tech Mono",Consolas,monospace; margin:0; padding:16px; }
+  h1 { text-align:center; letter-spacing:2px; text-shadow:0 0 6px var(--g); margin:0 0 4px; }
+  .sub { text-align:center; color:var(--g2); margin-bottom:14px; font-size:.9em; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center; margin-bottom:14px; }
+  button, select, label.filebtn { background:var(--panel); color:var(--g); border:1px solid var(--g); padding:6px 10px;
+      font-family:inherit; cursor:pointer; border-radius:3px; }
+  button:hover, label.filebtn:hover { background:var(--dim); }
+  input[type=file] { display:none; }
+  .layout { display:grid; grid-template-columns:minmax(280px,1fr) 2fr; gap:14px; }
+  @media (max-width:820px){ .layout{ grid-template-columns:1fr; } }
+  .panel { border:1px solid var(--g); border-radius:4px; background:var(--panel); box-shadow:inset 0 0 8px rgba(51,255,51,.15); }
+  .panel h2 { margin:0; padding:6px 10px; background:var(--g); color:#000; font-size:.85em; letter-spacing:1px; }
+  table { width:100%; border-collapse:collapse; font-size:.85em; }
+  th,td { padding:4px 8px; border-bottom:1px solid var(--dim); text-align:left; white-space:nowrap; }
+  th { cursor:pointer; color:var(--g2); }
+  th:hover { color:#fff; }
+  tr.sel { background:rgba(51,255,51,.14); }
+  tr:hover { background:rgba(51,255,51,.07); }
+  td.neg { color:var(--red); }
+  .runmeta { padding:8px 10px; font-size:.85em; color:var(--g2); line-height:1.5; }
+  .chartwrap { padding:10px; overflow:auto; }
+  svg { display:block; max-width:100%; background:#000; }
+  .legend { font-size:.8em; color:var(--g2); padding:0 10px 10px; }
+  .empty { padding:24px; text-align:center; color:var(--dim); }
+  .tag { border:1px solid var(--dim); padding:0 4px; border-radius:2px; font-size:.8em; }
+  .rank1 { color:#ffee55; }
+  @media print {
+    body { background:#fff; color:#000; }
+    .bar, .panel h2, #resultsPanel { display:none; }
+    .panel { border:1px solid #000; box-shadow:none; }
+    svg { background:#fff; }
+    .runmeta,.legend { color:#000; }
+  }
+</style>
+</head>
+<body>
+  <h1>TINFOIL HAT :: RESULTS VIEWER</h1>
+  <div class="sub">stop the mind control &mdash; measure your shielding</div>
+
+  <div class="bar">
+    <button id="btnDir">📂 Open TESTS folder</button>
+    <label class="filebtn">＋ Add CSV files<input id="fileInput" type="file" accept=".csv" multiple></label>
+    <select id="category"><option value="">All categories</option><option>Classic</option><option>Hybrid</option></select>
+    <select id="chartMode">
+      <option value="dual">Chart: Baseline vs Hat</option>
+      <option value="atten">Chart: Attenuation</option>
+      <option value="overlay">Chart: Overlay lines</option>
+    </select>
+    <button id="btnGroup">Group selected ▶ overlay</button>
+    <button id="btnSvg">⬇ SVG</button>
+    <button id="btnPng">⬇ PNG</button>
+    <button id="btnPrint">🖶 Print</button>
+  </div>
+
+  <div class="layout">
+    <div class="panel" id="resultsPanel">
+      <h2>RESULTS &mdash; click row to view, shift/ctrl-click to multi-select</h2>
+      <div id="tableHost"><div class="empty">No results loaded.<br>Open the TESTS folder or add CSV files.</div></div>
+    </div>
+    <div class="panel">
+      <h2 id="chartTitle">CHART</h2>
+      <div class="runmeta" id="runMeta"></div>
+      <div class="chartwrap" id="chartHost"><div class="empty">Select a result.</div></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </div>
+
+<script>
+"use strict";
+const BANDS = [["HF",2,30],["VHF",30,300],["UHF",300,3000],["SHF",3000,5900]];
+const bandOf = f => (BANDS.find(b => f >= b[1] && f < b[2]) || BANDS[3])[0];
+
+// ── model ─────────────────────────────────────────────────────────────────
+let runs = [];          // {name, category, timestamp, rows:[{f,base,hat,att}], avg, source, csv}
+let selected = new Set();
+let sortKey = "avg", sortDir = -1;
+
+function parseCSV(name, text) {
+  const run = { name: name.replace(/\.csv$/i, ""), category: "Classic", timestamp: "", rows: [], avg: null, source: name, csv: text };
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    let m;
+    if ((m = line.match(/^#\s*contestant=(.*)$/i))) { run.name = m[1].trim() || run.name; continue; }
+    if ((m = line.match(/^#\s*category=(.*)$/i)))   { run.category = m[1].trim() || run.category; continue; }
+    if ((m = line.match(/^#\s*timestamp=(.*)$/i)))  { run.timestamp = m[1].trim(); continue; }
+    if (/^frequency_mhz/i.test(line)) continue;
+    if ((m = line.match(/^AVERAGE,,,(-?[\d.]+)/i))) { run.avg = parseFloat(m[1]); continue; }
+    if (/^(BAND_|BEST|WORST)/i.test(line)) continue;
+    const p = line.split(",");
+    if (p.length >= 4 && /^-?[\d.]+$/.test(p[0])) {
+      const f = parseFloat(p[0]), base = parseFloat(p[1]), hat = parseFloat(p[2]);
+      run.rows.push({ f, base, hat, att: base - hat });   // recompute signed attenuation
+    }
+  }
+  if (run.avg === null && run.rows.length)
+    run.avg = run.rows.reduce((s, r) => s + r.att, 0) / run.rows.length;
+  return run.rows.length ? run : null;
+}
+
+function addRun(run) {
+  const i = runs.findIndex(r => r.source === run.source);
+  if (i >= 0) runs[i] = run; else runs.push(run);
+}
+
+// ── table ───────────────────────────────────────────────────────────────────
+function filteredRuns() {
+  const cat = document.getElementById("category").value;
+  let list = runs.filter(r => !cat || r.category === cat);
+  const cols = { name:r=>r.name.toLowerCase(), category:r=>r.category, avg:r=>r.avg, timestamp:r=>r.timestamp, n:r=>r.rows.length };
+  const key = cols[sortKey] || cols.avg;
+  list.sort((a,b) => { const x=key(a), y=key(b); return (x<y?-1:x>y?1:0)*sortDir; });
+  return list;
+}
+
+function renderTable() {
+  const list = filteredRuns();
+  const host = document.getElementById("tableHost");
+  if (!list.length) { host.innerHTML = '<div class="empty">No results match.</div>'; return; }
+  const hdr = [["name","Contestant"],["category","Cat"],["avg","Avg dB"],["n","#"],["timestamp","When"]];
+  let html = "<table><thead><tr>";
+  for (const [k,t] of hdr) html += `<th data-k="${k}">${t}${sortKey===k?(sortDir<0?" ▼":" ▲"):""}</th>`;
+  html += "</tr></thead><tbody>";
+  list.forEach((r,idx) => {
+    const rank1 = (sortKey==="avg" && sortDir<0 && idx===0) ? " rank1" : "";
+    const avg = r.avg==null ? "-" : r.avg.toFixed(1);
+    html += `<tr data-src="${encodeURIComponent(r.source)}" class="${selected.has(r.source)?"sel":""}">`
+          + `<td class="${rank1}">${escapeHtml(r.name)}</td><td><span class="tag">${r.category}</span></td>`
+          + `<td class="${r.avg<0?"neg":""}">${avg}</td><td>${r.rows.length}</td><td>${escapeHtml(r.timestamp)}</td></tr>`;
+  });
+  host.innerHTML = html + "</tbody></table>";
+  host.querySelectorAll("th").forEach(th => th.onclick = () => {
+    const k = th.dataset.k;
+    if (sortKey===k) sortDir*=-1; else { sortKey=k; sortDir=(k==="avg"?-1:1); }
+    renderTable();
+  });
+  host.querySelectorAll("tr[data-src]").forEach(tr => tr.onclick = e => {
+    const src = decodeURIComponent(tr.dataset.src);
+    if (e.shiftKey || e.ctrlKey || e.metaKey) { selected.has(src)?selected.delete(src):selected.add(src); }
+    else { selected.clear(); selected.add(src); }
+    renderTable(); renderChart();
+  });
+}
+
+// ── charts (inline SVG) ─────────────────────────────────────────────────────
+const W=560, H=300, PAD={l:40,r:12,t:14,b:40};
+const svgNS="http://www.w3.org/2000/svg";
+function el(tag, attrs, text) { const e=document.createElementNS(svgNS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); if(text!=null) e.textContent=text; return e; }
+
+function selectedRuns() { return runs.filter(r => selected.has(r.source)); }
+
+function renderChart() {
+  const host = document.getElementById("chartHost");
+  const legend = document.getElementById("legend");
+  const meta = document.getElementById("runMeta");
+  const sel = selectedRuns();
+  document.getElementById("chartTitle").textContent = "CHART" + (sel.length ? " — " + sel.map(r=>r.name).join(" vs ") : "");
+  if (!sel.length) { host.innerHTML='<div class="empty">Select a result.</div>'; legend.textContent=""; meta.textContent=""; return; }
+
+  const mode = document.getElementById("chartMode").value;
+  const overlay = sel.length > 1;
+  const svg = el("svg",{viewBox:`0 0 ${W} ${H}`, width:W, height:H, id:"chart"});
+  const x0=PAD.l, x1=W-PAD.r, y0=H-PAD.b, y1=PAD.t;
+  const plotW=x1-x0, plotH=y0-y1;
+
+  // y-scale
+  let lo,hi;
+  if (mode==="atten" || overlay) { lo=-20; hi=40; }   // attenuation dB
+  else { lo=-110; hi=-10; }                            // power dBm
+  const yFor = v => y0 - (Math.max(lo,Math.min(hi,v))-lo)/(hi-lo)*plotH;
+
+  // axes + gridlines
+  svg.appendChild(el("line",{x1:x0,y1:y0,x2:x1,y2:y0,stroke:"#1c661c"}));
+  svg.appendChild(el("line",{x1:x0,y1:y1,x2:x0,y2:y0,stroke:"#1c661c"}));
+  for (let g=0; g<=4; g++) {
+    const v = lo + (hi-lo)*g/4, y = yFor(v);
+    svg.appendChild(el("line",{x1:x0,y1:y,x2:x1,y2:y,stroke:"#0d330d"}));
+    svg.appendChild(el("text",{x:x0-4,y:y+4,fill:"#99ee99","font-size":"9","text-anchor":"end"}, v.toFixed(0)));
+  }
+  if (lo<0 && hi>0) { const yz=yFor(0); svg.appendChild(el("line",{x1:x0,y1:yz,x2:x1,y2:yz,stroke:"#2c882c","stroke-dasharray":"3 3"})); }
+
+  const base = sel[0].rows;
+  const N = base.length;
+  const colW = plotW / N;
+  const xFor = i => x0 + colW*(i+0.5);
+
+  const drawTrace = (rows, valFn, color) => {
+    let d = "";
+    rows.forEach((r,i) => { d += (i?" L":"M") + xFor(i).toFixed(1) + " " + yFor(valFn(r)).toFixed(1); });
+    svg.appendChild(el("path",{d, fill:"none", stroke:color, "stroke-width":"1.5"}));
+    rows.forEach((r,i)=> svg.appendChild(el("circle",{cx:xFor(i),cy:yFor(valFn(r)),r:1.6,fill:color})));
+  };
+
+  let legendHtml = "";
+  if (overlay) {
+    const palette = ["#33ff33","#33dddd","#ffee55","#ff8833","#ff55ff"];
+    sel.forEach((run,k) => { drawTrace(run.rows, r=>r.att, palette[k%palette.length]);
+      legendHtml += `<span style="color:${palette[k%palette.length]}">■ ${escapeHtml(run.name)} (${run.avg.toFixed(1)}dB)</span>&nbsp;&nbsp;`; });
+  } else if (mode==="atten") {
+    base.forEach((r,i) => { const y=yFor(r.att), yz=yFor(0);
+      svg.appendChild(el("rect",{x:xFor(i)-colW*0.35, y:Math.min(y,yz), width:colW*0.7, height:Math.max(1,Math.abs(yz-y)),
+        fill: r.att>=0 ? "#33ff33" : "#ff5555"})); });
+    legendHtml = '<span style="color:#33ff33">■ blocked</span> &nbsp; <span style="color:#ff5555">■ amplified (bad)</span>';
+  } else if (mode==="dual") {
+    base.forEach((r,i) => { const bw=colW*0.32;
+      svg.appendChild(el("rect",{x:xFor(i)-bw, y:yFor(r.base), width:bw, height:y0-yFor(r.base), fill:"#787878"}));
+      svg.appendChild(el("rect",{x:xFor(i),    y:yFor(r.hat),  width:bw, height:y0-yFor(r.hat),  fill:"#33ff33"})); });
+    legendHtml = '<span style="color:#787878">■ baseline</span> &nbsp; <span style="color:#33ff33">■ hat</span>';
+  } else { // overlay-lines for a single run: baseline + hat
+    drawTrace(base, r=>r.base, "#787878"); drawTrace(base, r=>r.hat, "#33ff33");
+    legendHtml = '<span style="color:#787878">■ baseline</span> &nbsp; <span style="color:#33ff33">■ hat</span>';
+  }
+
+  // sparse x labels
+  const step = Math.ceil(N/12);
+  base.forEach((r,i)=>{ if(i%step===0) svg.appendChild(el("text",{x:xFor(i),y:y0+12,fill:"#99ee99","font-size":"8","text-anchor":"middle"}, r.f)); });
+  svg.appendChild(el("text",{x:(x0+x1)/2,y:H-4,fill:"#679e67","font-size":"9","text-anchor":"middle"}, "frequency (MHz)"));
+
+  host.innerHTML=""; host.appendChild(svg);
+  legend.innerHTML = legendHtml;
+
+  // metadata / band breakdown for the primary run
+  const r0 = sel[0];
+  const bandTxt = BANDS.map(b => { const rs=r0.rows.filter(x=>x.f>=b[1]&&x.f<b[2]);
+      const m = rs.length ? rs.reduce((s,x)=>s+x.att,0)/rs.length : null;
+      return `${b[0]}:${m==null?"–":m.toFixed(1)}`; }).join("  ");
+  meta.innerHTML = `<b>${escapeHtml(r0.name)}</b> [${r0.category}] &nbsp; avg <b>${r0.avg.toFixed(1)} dB</b>`
+    + (r0.timestamp?` &nbsp; ${escapeHtml(r0.timestamp)}`:"")
+    + `<br>bands: ${bandTxt}`
+    + `<br><a download="${r0.name}.csv" href="${csvBlobUrl(r0)}" style="color:var(--cyan)">⬇ download this CSV</a>`;
+}
+
+// ── exports ──────────────────────────────────────────────────────────────────
+function currentSvg(){ return document.getElementById("chart"); }
+function download(name, url){ const a=document.createElement("a"); a.href=url; a.download=name; a.click(); }
+function svgString(){ const s=currentSvg(); return s ? '<?xml version="1.0"?>\n'+new XMLSerializer().serializeToString(s) : null; }
+function baseName(){ const s=selectedRuns(); return (s.map(r=>r.name).join("_vs_")||"chart").replace(/[^\w.-]+/g,"_"); }
+const csvBlobUrls = {};
+function csvBlobUrl(run){ if(!csvBlobUrls[run.source]) csvBlobUrls[run.source]=URL.createObjectURL(new Blob([run.csv],{type:"text/csv"})); return csvBlobUrls[run.source]; }
+
+document.getElementById("btnSvg").onclick = () => { const str=svgString(); if(str) download(baseName()+".svg", URL.createObjectURL(new Blob([str],{type:"image/svg+xml"}))); };
+document.getElementById("btnPng").onclick = () => {
+  const s=currentSvg(); if(!s) return;
+  const img=new Image();
+  img.onload=()=>{ const c=document.createElement("canvas"); c.width=W*2; c.height=H*2; const cx=c.getContext("2d");
+    cx.fillStyle="#000"; cx.fillRect(0,0,c.width,c.height); cx.drawImage(img,0,0,c.width,c.height);
+    download(baseName()+".png", c.toDataURL("image/png")); };
+  img.src="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(svgString())));
+};
+document.getElementById("btnPrint").onclick = () => window.print();
+document.getElementById("btnGroup").onclick = () => { if(selected.size<2) alert("Shift/Ctrl-click 2+ rows first."); else renderChart(); };
+document.getElementById("category").onchange = () => { renderTable(); };
+document.getElementById("chartMode").onchange = renderChart;
+
+// ── loading ──────────────────────────────────────────────────────────────────
+document.getElementById("fileInput").onchange = async e => {
+  for (const file of e.target.files) { const run = parseCSV(file.name, await file.text()); if (run) addRun(run); }
+  afterLoad();
+};
+document.getElementById("btnDir").onclick = async () => {
+  if (!window.showDirectoryPicker) { alert("Folder open needs Chrome/Edge. Use \"Add CSV files\" instead."); return; }
+  try {
+    const dir = await window.showDirectoryPicker();
+    for await (const [name, handle] of dir.entries())
+      if (handle.kind==="file" && /\.csv$/i.test(name)) { const run = parseCSV(name, await (await handle.getFile()).text()); if (run) addRun(run); }
+    afterLoad();
+  } catch(err) { if (err.name!=="AbortError") console.error(err); }
+};
+function afterLoad(){ if (runs.length && !selected.size) { const top=filteredRuns()[0]; if(top) selected.add(top.source); } renderTable(); renderChart(); }
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+</script>
+</body>
+</html>

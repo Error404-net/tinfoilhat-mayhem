@@ -2,32 +2,76 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Current State
+## What This Repo Is
 
-This repo contains **only a design document** (`App-overview.md`) — no source code, no build system, no git history yet. The document specifies a planned PortaPack H2 + HackRF One application ("Tinfoil Hat Competition" standalone RF attenuation test) to be built as a Mayhem firmware app. Treat `App-overview.md` as the spec; the code it describes does not exist here yet.
+Source for **Tinfoil Hat Competition**, a PortaPack H2/H4M + HackRF standalone
+[Mayhem](https://github.com/portapack-mayhem/mayhem-firmware) external app that
+runs the contest's RF-attenuation test on-device (no host, WiFi, or Flask app).
+It sweeps 50 frequencies (2–5900 MHz) twice — baseline then hat-on — scores the
+shielding, charts before/after on the LCD, saves CSVs to the SD card, and has an
+on-device review + Classic/Hybrid leaderboard.
 
-## What Is Being Built
+`App-overview.md` is the original design doc; the four `*_flyer.html` files are
+the contest rules/scoring that drove requirements (bands, categories,
+best-score-per-category, averaged readings, signed attenuation). Where the doc
+and flyers disagree, the flyers win.
 
-A standalone Mayhem firmware app (C++17) that runs the tinfoil-hat RF attenuation test entirely on the PortaPack — no host computer, WiFi, or Flask web app. It sweeps 50 fixed frequencies twice (baseline, then hat-on), computes per-frequency attenuation (`baseline_dbm − hat_dbm`), shows results on the 320×240 LCD, and writes a CSV to the SD card.
+## Layout
 
-The app is a **standalone Mayhem** app, not part of this repo's build. It gets copied into a checkout of [portapack-mayhem/mayhem-firmware](https://github.com/portapack-mayhem/mayhem-firmware) and built there:
+- `external/tinfoilhat/` — the app, laid out to drop into a mayhem-firmware
+  checkout at `firmware/application/external/tinfoilhat/`.
+  - `main.cpp` — `application_information_t` registration → builds to `tinfoilhat.ppma`.
+  - `ui_tinfoilhat.hpp/.cpp` — all views (menu, scan, results, review, grading,
+    compare, settings) + the reusable `ChartWidget`.
+  - `tinfoilhat_logic.hpp` — **pure, firmware-independent** STL-only header:
+    frequency list, bands, `ScanResult`, scoring, CSV format/parse, leaderboard
+    ranking. Single source of truth for the numbers.
+  - `external.cmake.patch` — the two registration edits (EXTCPPSRC + EXTAPPLIST).
+  - `viewer.html` — self-contained companion web viewer for the SD `/TESTS/`
+    folder (loads the CSVs, SVG charts, sort/filter, SVG/PNG export, print). No
+    server/CDN. Its CSV parser must stay in sync with `write_csv` in
+    `ui_tinfoilhat.cpp` (same `# contestant=`/`# category=`/`AVERAGE` contract).
+- `test/test_tinfoilhat_logic.cpp` — host self-check for the pure logic.
+- `.github/workflows/build-ppma.yml` — CI that grafts the app into
+  mayhem-firmware, runs the Docker build, and publishes `tinfoilhat.ppma`.
 
-- **New files:** `app_tinfoilhat.hpp` + `app_tinfoilhat.cpp` in `firmware/application/apps/`
-- **Registration edits:** add an `AppEntry` (Utilities menu) + `#include` in `apps_nav_play.hpp`/`.cpp`
-- **Build:** inside a mayhem-firmware checkout — `mkdir build && cd build && cmake .. && make firmware -j$(nproc)`; needs the ARM toolchain (`arm-none-eabi-gcc`, CMake ≥ 3.20). See the [Mayhem build guide](https://github.com/portapack-mayhem/mayhem-firmware/wiki/Build-Firmware).
+## Build & Test
 
-## Architecture Notes (from the spec)
+- **Host self-check (runs anywhere, no firmware toolchain):**
+  `g++ -std=c++17 test/test_tinfoilhat_logic.cpp -o /tmp/thtest && /tmp/thtest`
+  Any change to scoring/CSV/leaderboard logic must keep this green. Add asserts
+  here rather than only testing on-device.
+- **Firmware `.ppma`:** cannot be compiled in this repo — it needs the Mayhem
+  toolchain. Either push and let `build-ppma.yml` produce it, or manually clone
+  mayhem-firmware, copy `external/tinfoilhat/` in, apply `external.cmake.patch`,
+  and run the Docker build (`docker build -f dockerfile-nogit .` then
+  `docker run -i -v "$PWD:/havoc" portapack-dev`). Output:
+  `build/firmware/application/tinfoilhat.ppma`. Install = drop it in SD `/APPS/`.
 
-- Every Mayhem app is a `ui::View` subclass pushed/popped on a global `NavigationView` stack. Three views planned: `TinfoilHatAppView` (menu) → `TinfoilHatScanView` (reused for both baseline and hat passes via a `ScanMode` enum) → `TinfoilHatResultsView`.
-- **Measurement path:** tune `ReceiverModel` to each frequency, then read `mean` RSSI from `ChannelStatsUpdateMessage` (sent ~every 100 ms by the M0 baseband). No custom baseband image — reuse the existing `nfm_audio`/`am_audio` image. `app_level.cpp` in mayhem-firmware is the direct reference implementation for this tune-and-read loop.
-- Per-frequency flow: tune → settle (`SETTLE_MS`, ignore stats messages during settle) → take one reading → advance. `dbm = (raw_mean / 128.0f) - 90.0f`.
+## Architecture Notes
 
-## Calibration Is Hardware-Dependent — Don't Hard-Code Blindly
+- **External app plugin model** (not the old `apps_nav_play` edits): a
+  self-contained folder that compiles to a `.ppma` loaded from SD `/APPS/` — no
+  firmware reflash. Reference/template: `external/level/` in mayhem-firmware.
+- **Measurement** mirrors the Level app: `baseband::run_image(nfm_audio)`,
+  tune `receiver_model`, read `ChannelStatistics.max_db` (already in dB — the
+  design doc's `(raw/128)-90` Q1.14 math is obsolete) via a
+  `MessageHandlerRegistration`. The sweep is driven by the stat-message stream
+  with a settle-then-average gate per frequency — **not** timers.
+- **Never navigate (`nav_.push/replace`) from inside the ChannelStatistics
+  handler** — it can free the view mid-dispatch. The scan finishes into a
+  `Done` step and navigates from the OK button handler instead.
+- **Attenuation is signed** — negative (foil resonance amplifying) is real and
+  must drag the average down; never clamp.
+- **Persistence** via `app_settings::SettingsManager` (auto-saves to SD). CSV
+  filenames auto-increment via `next_filename_matching_pattern`.
 
-The spec's magic numbers are empirical and must stay tunable against real hardware:
+## Editing Conventions
 
-- The `- 90.0f` dbm offset depends on antenna, LNA gain, and PCB variant. Keep it a named constant (or calibration screen), not a buried literal.
-- `SETTLE_MS = 150` is a starting point — higher frequencies may need more settle time for synth lock.
-- Not all 50 frequencies are guaranteed to tune cleanly on H4M hardware; the list needs on-device verification and pruning. Note the frequency array in the spec has a placeholder/duplicated tail — the real deduplicated list belongs in the `.cpp`.
-
-Leave these as adjustable knobs; a minimal model can't see the physical drift.
+- Keep numeric/scoring/parse logic in `tinfoilhat_logic.hpp` (so the host test
+  covers it); keep firmware/UI concerns in `ui_tinfoilhat.*`.
+- `SETTLE_MSGS` / `AVG_MSGS` / `CALIBRATION_OFFSET_DB` in the header are
+  hardware-tuning knobs marked with `ponytail:` — adjust on real hardware, don't
+  bury them as literals.
+- The README is intentionally in 90s warez-scene `.NFO` style — keep that voice
+  if you edit it.
