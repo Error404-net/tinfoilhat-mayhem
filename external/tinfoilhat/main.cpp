@@ -31,24 +31,43 @@ application_information_t _application_information_tinfoilhat = {
     /*.app_name = */ "Tinfoil Hat",
     /*.bitmap_data = */
     {
-        // 16x16 1bpp "hat" glyph — a simple foil cap over a head.
-        0x00, 0x00,
-        0x80, 0x01,
-        0xC0, 0x03,
-        0xE0, 0x07,
-        0xF0, 0x0F,
-        0xF8, 0x1F,
-        0xFC, 0x3F,
-        0xFE, 0x7F,
+        // 16x16 1bpp classic tinfoil hat: pyramid cone + brim + oval head.
+        // Bit order: LSB of each byte = leftmost pixel in that 8-col group.
+        // Col 0-7 in byte[0], col 8-15 in byte[1].
+        //
+        // .......X........  single-pixel tip  (col 7)
+        // ......XXX.......  3 wide            (cols 6-8)
+        // .....XXXXX......  5 wide            (cols 5-9)
+        // ....XXXXXXX.....  7 wide            (cols 4-10)
+        // ...XXXXXXXXX....  9 wide            (cols 3-11)
+        // ..XXXXXXXXXXX...  11 wide           (cols 2-12)
+        // .XXXXXXXXXXXXX..  13 wide           (cols 1-13)
+        // XXXXXXXXXXXXXXXX  full brim         (cols 0-15)
+        // ................  gap
+        // ....XXXXXXXX....  head top          (cols 4-11)
+        // ...XXXXXXXXXX...  head              (cols 3-12)
+        // ...XXXXXXXXXX...  head              (cols 3-12)
+        // ....XXXXXXXX....  head bottom       (cols 4-11)
+        // ................  (empty rows)
+        // ................
+        // ................
+        0x80, 0x00,
+        0xC0, 0x01,
+        0xE0, 0x03,
+        0xF0, 0x07,
+        0xF8, 0x0F,
+        0xFC, 0x1F,
+        0xFE, 0x3F,
         0xFF, 0xFF,
         0x00, 0x00,
-        0xFC, 0x3F,
-        0xFE, 0x7F,
-        0x00, 0x00,
+        0xF0, 0x0F,
+        0xF8, 0x1F,
+        0xF8, 0x1F,
+        0xF0, 0x0F,
         0x00, 0x00,
         0x00, 0x00,
         0x00, 0x00},
-    /*.icon_color = */ ui::Color::grey().v,
+    /*.icon_color = */ ui::Color::white().v,
     /*.menu_location = */ app_location_t::GAMES,
     /*.desired_menu_position = */ -1,
 
