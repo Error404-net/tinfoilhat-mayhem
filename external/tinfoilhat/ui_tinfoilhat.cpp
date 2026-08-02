@@ -404,10 +404,14 @@ void TinfoilHatScanView::on_ok() {
         case Step::HatPrompt:
             begin_phase(false);
             break;
-        case Step::Done:
-            // Safe context (button handler): hand off to results + save.
-            nav_.replace<TinfoilHatResultsView>(data_, true);
+        case Step::Done: {
+            // replace() pops (destroys) this view before constructing the next,
+            // so copy data_ to a local (survives on the stack) — passing the
+            // member directly would be a use-after-free.
+            TestData finished = data_;
+            nav_.replace<TinfoilHatResultsView>(std::move(finished), true);
             break;
+        }
         default:
             break;  // ignore while scanning
     }
