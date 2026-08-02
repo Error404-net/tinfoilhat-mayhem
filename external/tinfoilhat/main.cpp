@@ -4,10 +4,14 @@
  * Builds to tinfoilhat.ppma. Copy it to the SD card's /APPS/ folder; it appears
  * in the RX menu. No firmware reflash required.
  */
-#include "external_app.hpp"
+// Include order matters: external_app.hpp must come LAST. It depends on
+// app_location_t (from standalone_app.hpp) which only gets pulled in through
+// ui_navigation.hpp's own include chain — so ui_navigation.hpp has to be seen
+// first. Mirrors external/level/main.cpp.
 #include "ui.hpp"
-#include "ui_navigation.hpp"
 #include "ui_tinfoilhat.hpp"
+#include "ui_navigation.hpp"
+#include "external_app.hpp"
 
 namespace ui::external_app::tinfoilhat {
 void initialize_app(ui::NavigationView& nav) {

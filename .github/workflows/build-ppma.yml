@@ -77,6 +77,17 @@ jobs:
           print("external.cmake registered tinfoilhat")
           PY
 
+      # Cache the cmake build tree so only changed files (our app) recompile,
+      # instead of the whole firmware, on every run. Falls back to the newest
+      # build for this firmware ref when our sources change.
+      - name: Cache firmware build tree
+        uses: actions/cache@v4
+        with:
+          path: mayhem/build
+          key: mayhem-build-${{ steps.ref.outputs.ref }}-${{ hashFiles('app/external/tinfoilhat/**') }}
+          restore-keys: |
+            mayhem-build-${{ steps.ref.outputs.ref }}-
+
       - name: Build Docker image
         working-directory: mayhem
         run: docker build -t portapack-dev -f dockerfile-nogit .
