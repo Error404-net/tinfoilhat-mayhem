@@ -54,7 +54,7 @@ class ChartWidget : public Widget {
    public:
     ChartWidget(Rect parent_rect);
 
-    void set_data(const TestData* primary, const TestData* overlay = nullptr);
+    void set_data(const TestData* primary);
     void set_mode(DisplayMode mode);
 
     void paint(Painter& painter) override;
@@ -62,7 +62,6 @@ class ChartWidget : public Widget {
 
    private:
     const TestData* primary_{nullptr};
-    const TestData* overlay_{nullptr};
     DisplayMode mode_{DisplayMode::DualBars};
     size_t scroll_{0};  // first visible frequency index
 
@@ -79,8 +78,6 @@ float apply_calibration(int32_t max_db);
 std::string save_test_csv(const TestData& data);
 // Load a CSV into TestData (freqs+results+meta). Returns false on failure.
 bool load_test_csv(const std::filesystem::path& path, TestData& out);
-// Parse just the leaderboard fields from a CSV (cheap: header + AVERAGE row).
-bool load_run_info(const std::filesystem::path& path, thl::RunInfo& out);
 
 // ── Menu (app entry) ────────────────────────────────────────────────────────
 class TinfoilHatMenuView : public View {
@@ -182,33 +179,18 @@ class TinfoilHatResultsView : public View {
 
     void refresh_summary();
 
-    Text lbl_name_{{0, 16, screen_width, 16}, ""};
-    Text lbl_avg_{{0, 36, screen_width, 16}, ""};
-    Text lbl_bands_{{0, 56, screen_width, 16}, ""};
-    Text lbl_bestworst_{{0, 76, screen_width, 16}, ""};
-    ChartWidget chart_{{0, 100, screen_width, 150}};
+    // On-screen summary kept minimal (name + avg); per-band and best/worst are
+    // in the saved CSV and the web viewer, to save code toward the 32KB cap.
+    Text lbl_name_{{0, 20, screen_width, 16}, ""};
+    Text lbl_avg_{{0, 42, screen_width, 16}, ""};
+    ChartWidget chart_{{0, 90, screen_width, 156}};
     Button btn_mode_{{8, 258, 104, 30}, "View: Bars"};
     Text lbl_saved_{{0, 294, screen_width, 16}, ""};
     Button btn_done_{{128, 258, 104, 30}, "Done"};
 };
 
-// ── Head-to-head compare (two runs overlaid) ────────────────────────────────
-class TinfoilHatCompareView : public View {
-   public:
-    TinfoilHatCompareView(NavigationView& nav, TestData a, TestData b);
-    void focus() override;
-    std::string title() const override { return "TinfoilHat"; }
-
-   private:
-    NavigationView& nav_;
-    TestData a_;
-    TestData b_;
-
-    Text lbl_a_{{0, 16, screen_width, 16}, ""};
-    Text lbl_b_{{0, 36, screen_width, 16}, ""};
-    ChartWidget chart_{{0, 60, screen_width, 190}};
-    Button btn_done_{{16, 262, screen_width - 32, 30}, "Done"};
-};
+// (On-device head-to-head compare removed to fit the 32KB external-app cap —
+//  the companion web viewer does multi-run compare via row multi-select.)
 
 // ── Review (list saved CSVs) ────────────────────────────────────────────────
 class TinfoilHatReviewView : public View {
@@ -244,7 +226,6 @@ class TinfoilHatGradingView : public View {
     std::vector<thl::RunInfo> all_runs_;
     std::vector<thl::RunInfo> ranked_;
     int32_t category_{0};  // 0 Classic, 1 Hybrid
-    int compare_a_{-1};
 
     void reload();
     void rebuild_ranked();
@@ -255,7 +236,7 @@ class TinfoilHatGradingView : public View {
         {8, 32},
         8,
         {{"Classic", 0}, {"Hybrid", 1}}};
-    Text lbl_hint_{{120, 32, screen_width - 120, 16}, "sel=compare"};
+    Text lbl_hint_{{120, 32, screen_width - 120, 16}, "sel=view"};
     MenuView menu_{{0, 56, screen_width, 224}, true};
     Button btn_back_{{16, 286, screen_width - 32, 28}, "Back"};
 };

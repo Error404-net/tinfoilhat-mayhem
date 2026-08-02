@@ -108,36 +108,14 @@ bool load_test_csv(const std::filesystem::path& path, TestData& out) {
     return !out.results.empty();
 }
 
-bool load_run_info(const std::filesystem::path& path, thl::RunInfo& out) {
-    auto r = File::read_file(path);
-    if (!r) return false;
-    out = thl::RunInfo{};
-    out.path = path.string();
-    out.contestant = path.stem().string();
-    bool have_avg = false;
-
-    for_each_line(r.value(), [&](const std::string& line) {
-        std::string v;
-        if (thl::parse_header_field(line, "contestant", v)) { out.contestant = v; return; }
-        if (thl::parse_header_field(line, "category", v)) { out.category = v; return; }
-        float score = 0;
-        if (thl::parse_labeled_value(line, "AVERAGE", score)) {
-            out.score = score;
-            have_avg = true;
-        }
-    });
-    return have_avg;
-}
-
 // ── ChartWidget ─────────────────────────────────────────────────────────────
 ChartWidget::ChartWidget(Rect parent_rect)
     : Widget{parent_rect} {
     set_focusable(true);
 }
 
-void ChartWidget::set_data(const TestData* primary, const TestData* overlay) {
+void ChartWidget::set_data(const TestData* primary) {
     primary_ = primary;
-    overlay_ = overlay;
     scroll_ = 0;
     set_dirty();
 }
@@ -242,39 +220,27 @@ void ChartWidget::draw_bars(Painter& painter, bool dual) {
 }
 
 void ChartWidget::draw_overlay(Painter& painter) {
+    // Single-run before/after as two line traces (baseline grey, hat green).
     const auto r = screen_rect();
     const int bottom = r.bottom() - 12;
-    const int top = r.top() + 2;
-    const int h = bottom - top;
+    const int h = bottom - (r.top() + 2);
     const size_t vis = visible_columns();
     const int colw = r.width() / (int)vis;
+    const size_t n = primary_->results.size();
 
-    // Single run: baseline vs hat in dBm. Compare: two attenuation curves.
-    const bool compare = (overlay_ != nullptr);
     auto y_db = [&](float db) {
         float t = (db - DB_LO) / (DB_HI - DB_LO);
         t = std::max(0.f, std::min(1.f, t));
         return bottom - (int)(t * h);
     };
-    auto y_att = [&](float a) {
-        float t = (a - ATT_LO) / (ATT_HI - ATT_LO);
-        t = std::max(0.f, std::min(1.f, t));
-        return bottom - (int)(t * h);
-    };
-
-    // Draw one series as a connected trace (vertical connectors between samples).
-    auto trace = [&](const TestData& d, int selector, Color col) {
-        // selector: 0 = baseline dBm, 1 = hat dBm, 2 = attenuation
+    auto trace = [&](bool baseline, Color col) {
         int prev_x = -1, prev_y = 0;
-        const size_t n = d.results.size();
         for (size_t c = 0; c < vis; ++c) {
             size_t i = scroll_ + c;
             if (i >= n) break;
             const int x = r.left() + (int)c * colw + colw / 2;
-            const auto& s = d.results[i];
-            const int y = (selector == 2) ? y_att(s.attenuation())
-                          : (selector == 0) ? y_db(s.baseline_db)
-                                            : y_db(s.hat_db);
+            const auto& s = primary_->results[i];
+            const int y = y_db(baseline ? s.baseline_db : s.hat_db);
             painter.fill_rectangle({x - 1, y - 1, 3, 3}, col);
             if (prev_x >= 0) {
                 const int y0 = std::min(prev_y, y);
@@ -286,15 +252,8 @@ void ChartWidget::draw_overlay(Painter& painter) {
             prev_y = y;
         }
     };
-
-    if (compare) {
-        painter.draw_hline({r.left(), y_att(0.f)}, r.width(), Color(80, 80, 80));
-        trace(*primary_, 2, Color::green());  // A
-        trace(*overlay_, 2, Color::cyan());   // B
-    } else {
-        trace(*primary_, 0, Color(120, 120, 120));  // baseline
-        trace(*primary_, 1, Color::green());        // hat
-    }
+    trace(true, Color(120, 120, 120));
+    trace(false, Color::green());
 }
 
 void ChartWidget::draw_table(Painter& painter) {
@@ -505,8 +464,7 @@ static const char* mode_label(int32_t m) {
 
 TinfoilHatResultsView::TinfoilHatResultsView(NavigationView& nav, TestData data, bool save)
     : nav_{nav}, data_{std::move(data)} {
-    add_children({&lbl_name_, &lbl_avg_, &lbl_bands_, &lbl_bestworst_, &chart_,
-                  &btn_mode_, &lbl_saved_, &btn_done_});
+    add_children({&lbl_name_, &lbl_avg_, &chart_, &btn_mode_, &lbl_saved_, &btn_done_});
 
     chart_.set_data(&data_);
     chart_.set_mode((DisplayMode)display_mode_);
@@ -536,25 +494,7 @@ void TinfoilHatResultsView::focus() {
 void TinfoilHatResultsView::refresh_summary() {
     lbl_name_.set(data_.contestant + " [" + data_.category + "]");
     lbl_avg_.set("Avg atten: " + to_string_dec_int((int)thl::mean_attenuation(data_.results)) + " dB");
-
-    const thl::Band bands[] = {thl::Band::HF, thl::Band::VHF, thl::Band::UHF, thl::Band::SHF};
-    std::string bstr = "";
-    const char* bn[] = {"HF", "VHF", "UHF", "SHF"};
-    for (int b = 0; b < 4; ++b)
-        bstr += std::string(bn[b]) + ":" +
-                to_string_dec_int((int)thl::band_mean(data_.results, data_.freqs.data(), bands[b])) + " ";
-    lbl_bands_.set(bstr);
-
-    int bi = thl::best_index(data_.results);
-    int wi = thl::worst_index(data_.results);
-    std::string bw = "";
-    if (bi >= 0)
-        bw += "Best " + to_string_dec_uint(data_.freqs[bi]) + ":" +
-              to_string_dec_int((int)data_.results[bi].attenuation());
-    if (wi >= 0)
-        bw += " Worst " + to_string_dec_uint(data_.freqs[wi]) + ":" +
-              to_string_dec_int((int)data_.results[wi].attenuation());
-    lbl_bestworst_.set(bw);
+    // (per-band + best/worst live in the CSV and the web viewer)
 }
 
 // ── Review ──────────────────────────────────────────────────────────────────
@@ -628,11 +568,19 @@ void TinfoilHatGradingView::focus() {
 }
 
 void TinfoilHatGradingView::reload() {
+    // Load each CSV as a full run and reduce to leaderboard fields — reuses
+    // load_test_csv (no separate header-only parser) to save code.
     all_runs_.clear();
     auto files = scan_root_files(u"TESTS", u"*.csv");
     for (const auto& p : files) {
+        TestData d;
+        if (!load_test_csv(in_tests(p), d)) continue;
         thl::RunInfo info;
-        if (load_run_info(in_tests(p), info)) all_runs_.push_back(info);
+        info.contestant = d.contestant;
+        info.category = d.category;
+        info.score = thl::mean_attenuation(d.results);
+        info.path = in_tests(p).string();
+        all_runs_.push_back(info);
     }
     rebuild_ranked();
 }
@@ -640,7 +588,6 @@ void TinfoilHatGradingView::reload() {
 void TinfoilHatGradingView::rebuild_ranked() {
     const std::string cat = (category_ == 1) ? "Hybrid" : "Classic";
     ranked_ = thl::rank_best_per_contestant(all_runs_, cat);
-    compare_a_ = -1;
 
     menu_.clear();
     for (size_t i = 0; i < ranked_.size(); ++i) {
@@ -650,47 +597,17 @@ void TinfoilHatGradingView::rebuild_ranked() {
         Color col = (i == 0) ? Color::yellow() : Color::white();
         menu_.add_item({label, col, nullptr, [this, i](KeyEvent) { on_select(i); }});
     }
-    if (ranked_.empty())
-        lbl_hint_.set("no runs");
-    else
-        lbl_hint_.set("sel=compare");
+    lbl_hint_.set(ranked_.empty() ? "no runs" : "sel=view");
     set_dirty();
 }
 
 void TinfoilHatGradingView::on_select(size_t i) {
+    // Open the selected run's chart. (Head-to-head compare lives in the web
+    // viewer.)
     if (i >= ranked_.size()) return;
-    if (compare_a_ < 0) {
-        compare_a_ = (int)i;
-        lbl_hint_.set("A=" + ranked_[i].contestant + " pick B");
-        set_dirty();
-        return;
-    }
-    // second pick -> head-to-head overlay
-    TestData a, b;
-    if (!load_test_csv(ranked_[compare_a_].path, a) || !load_test_csv(ranked_[i].path, b)) {
-        compare_a_ = -1;
-        return;
-    }
-    compare_a_ = -1;
-    lbl_hint_.set("sel=compare");
-    nav_.push<TinfoilHatCompareView>(std::move(a), std::move(b));
-}
-
-// ── Compare (head-to-head overlay) ──────────────────────────────────────────
-TinfoilHatCompareView::TinfoilHatCompareView(NavigationView& nav, TestData a, TestData b)
-    : nav_{nav}, a_{std::move(a)}, b_{std::move(b)} {
-    add_children({&lbl_a_, &lbl_b_, &chart_, &btn_done_});
-    lbl_a_.set("A (green): " + a_.contestant + " " +
-               to_string_dec_int((int)thl::mean_attenuation(a_.results)) + "dB");
-    lbl_b_.set("B (cyan):  " + b_.contestant + " " +
-               to_string_dec_int((int)thl::mean_attenuation(b_.results)) + "dB");
-    chart_.set_mode(DisplayMode::Overlay);
-    chart_.set_data(&a_, &b_);
-    btn_done_.on_select = [this](Button&) { nav_.pop(); };
-}
-
-void TinfoilHatCompareView::focus() {
-    chart_.focus();
+    TestData d;
+    if (!load_test_csv(ranked_[i].path, d)) return;
+    nav_.push<TinfoilHatResultsView>(std::move(d), false);
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────

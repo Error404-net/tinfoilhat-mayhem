@@ -157,20 +157,32 @@ struct RunInfo {
 };
 
 // Best run per contestant for one category, sorted by score descending.
+// Hand-rolled dedup + insertion sort — avoids pulling std::sort/std::find_if
+// template bloat into the 32KB external-app image. ponytail: O(n^2), fine for
+// a contest-sized leaderboard.
 inline std::vector<RunInfo> rank_best_per_contestant(const std::vector<RunInfo>& runs,
                                                      const std::string& category) {
     std::vector<RunInfo> best;
     for (const auto& run : runs) {
         if (run.category != category) continue;
-        auto it = std::find_if(best.begin(), best.end(),
-                               [&](const RunInfo& b) { return b.contestant == run.contestant; });
-        if (it == best.end())
+        size_t j = 0;
+        for (; j < best.size(); ++j)
+            if (best[j].contestant == run.contestant) break;
+        if (j == best.size())
             best.push_back(run);
-        else if (run.score > it->score)
-            *it = run;
+        else if (run.score > best[j].score)
+            best[j] = run;
     }
-    std::sort(best.begin(), best.end(),
-              [](const RunInfo& a, const RunInfo& b) { return a.score > b.score; });
+    // insertion sort, descending by score
+    for (size_t i = 1; i < best.size(); ++i) {
+        RunInfo key = best[i];
+        size_t k = i;
+        while (k > 0 && best[k - 1].score < key.score) {
+            best[k] = best[k - 1];
+            --k;
+        }
+        best[k] = key;
+    }
     return best;
 }
 
