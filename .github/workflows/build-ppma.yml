@@ -3,12 +3,12 @@ name: Build tinfoilhat.ppma
 # Auto-builds the installable Mayhem external app (tinfoilhat.ppma) by dropping
 # this app into a mayhem-firmware checkout and running their Docker build.
 # - Every push/PR: builds and uploads the .ppma as a workflow artifact.
-# - Tag push (v*): also attaches the .ppma to a GitHub Release.
+# - CalVer tag push (YYYY.MM.patch, e.g. 2026.08.1): attaches to a GitHub Release.
 
 on:
   push:
     branches: [master, main]
-    tags: ["v*"]
+    tags: ["[0-9][0-9][0-9][0-9].[0-9][0-9].*"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -138,10 +138,17 @@ jobs:
           name: tinfoilhat-ppma
           path: out/*
 
-      - name: Attach to release (tags only)
+      - name: Attach to release (CalVer tags only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          name: "Tinfoil Hat ${{ github.ref_name }}"
+          body: |
+            ## Install
+
+            1. Drop `tinfoilhat.ppma` into `/APPS/` on your PortaPack SD card
+            2. Drop `viewer.html` into `/TESTS/` on your PortaPack SD card
+            3. Boot → RX menu → **Tinfoil Hat**
           files: |
             out/tinfoilhat.ppma
             out/viewer.html
