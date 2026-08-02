@@ -13,11 +13,11 @@ on:
   workflow_dispatch:
     inputs:
       firmware_ref:
-        description: "mayhem-firmware branch/tag to build against"
-        default: "next"
+        description: "mayhem-firmware branch/tag (e.g. v2.4.0, nightly-tag-2026-08-02)"
+        default: "v2.4.0"
 
 env:
-  FW_REF: next  # pinned mayhem-firmware ref; override via workflow_dispatch
+  FW_REF: v2.4.0  # stable release; must match the firmware running on the device
 
 jobs:
   build:
@@ -100,6 +100,24 @@ jobs:
               print("external.ld registered tinfoilhat at 0x%08X" % nxt)
           PY
 
+      # VERSION_STRING must match what the official firmware was built with so
+      # that VERSION_MD5 (an 8-char MD5 of the version string) agrees between
+      # the running firmware and our .ppma — mismatch = broken icon + error.
+      # Stable releases: read from version.txt (e.g. "v2.4.0").
+      # Nightly tags:    derive n_YYMMDD from the tag name (mayhem nightly CI
+      #                  uses exactly this format).
+      - name: Determine VERSION_STRING
+        id: fwver
+        run: |
+          ver=$(cat mayhem/.github/workflows/version.txt 2>/dev/null || true)
+          if [ -z "$ver" ]; then
+            date_part=$(echo "${{ steps.ref.outputs.ref }}" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | tr -d '-' | cut -c3- || true)
+            [ -n "$date_part" ] && ver="n_${date_part}"
+          fi
+          [ -z "$ver" ] && ver="${{ steps.ref.outputs.ref }}"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "VERSION_STRING will be: $ver"
+
       - name: Build Docker image
         working-directory: mayhem
         run: docker build -t portapack-dev -f dockerfile-nogit .
@@ -108,7 +126,7 @@ jobs:
         working-directory: mayhem
         run: |
           mkdir -p build
-          docker run -e VERSION_STRING=ci_$(date +%y%m%d) -i \
+          docker run -e VERSION_STRING=${{ steps.fwver.outputs.version }} -i \
             -v "${{ github.workspace }}/mayhem:/havoc" portapack-dev
 
       - name: Collect tinfoilhat.ppma + web viewer
