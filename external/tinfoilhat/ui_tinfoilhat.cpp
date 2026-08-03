@@ -17,11 +17,6 @@ using namespace portapack;
 namespace ui::external_app::tinfoilhat {
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
-// scan_root_files returns bare filenames; results live under TESTS/.
-static std::filesystem::path in_tests(const std::filesystem::path& name) {
-    return std::filesystem::path{u"TESTS"} / name;
-}
-
 float apply_calibration(int32_t max_db) {
     return (float)max_db + CALIBRATION_OFFSET_DB;
 }
@@ -63,48 +58,6 @@ std::string save_test_csv(const TestData& data) {
     if (path.empty()) return "";
     if (!write_csv(path, data)) return "";
     return path.filename().string();
-}
-
-// Iterate lines of a text blob without <sstream>.
-template <typename F>
-static void for_each_line(const std::string& text, F&& fn) {
-    size_t pos = 0;
-    while (pos < text.size()) {
-        size_t nl = text.find('\n', pos);
-        std::string line = text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
-        pos = (nl == std::string::npos) ? text.size() : nl + 1;
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (!line.empty()) fn(line);
-    }
-}
-
-bool load_test_csv(const std::filesystem::path& path, TestData& out) {
-    auto r = File::read_file(path);
-    if (!r) return false;
-    out = TestData{};
-    out.contestant = path.stem().string();
-
-    for_each_line(r.value(), [&](const std::string& line) {
-        std::string v;
-        if (thl::parse_header_field(line, "contestant", v)) { out.contestant = v; return; }
-        if (thl::parse_header_field(line, "category", v)) { out.category = v; return; }
-        char c0 = line[0];
-        if (!(c0 == '-' || (c0 >= '0' && c0 <= '9'))) return;  // skip header/summary rows
-        char* end = nullptr;
-        float mhz = std::strtof(line.c_str(), &end);
-        if (*end != ',') return;
-        float base = std::strtof(end + 1, &end);
-        if (*end != ',') return;
-        float hat = std::strtof(end + 1, &end);
-        if (*end != ',') return;
-        thl::ScanResult sr;
-        sr.baseline_db = base;
-        sr.hat_db = hat;
-        sr.valid = true;
-        out.freqs.push_back((uint16_t)(mhz + 0.5f));
-        out.results.push_back(sr);
-    });
-    return !out.results.empty();
 }
 
 // ── ChartWidget ─────────────────────────────────────────────────────────────
@@ -178,10 +131,9 @@ void ChartWidget::paint(Painter& painter) {
 // ── Menu (entry) ────────────────────────────────────────────────────────────
 TinfoilHatMenuView::TinfoilHatMenuView(NavigationView& nav)
     : nav_{nav} {
-    add_children({&title_, &btn_start_, &btn_grading_, &btn_settings_, &btn_back_});
+    add_children({&title_, &btn_start_, &btn_settings_, &lbl_viewer_, &btn_back_});
 
     btn_start_.on_select = [this](Button&) { nav_.push<TinfoilHatScanView>(); };
-    btn_grading_.on_select = [this](Button&) { nav_.push<TinfoilHatGradingView>(); };
     btn_settings_.on_select = [this](Button&) { nav_.push<TinfoilHatSettingsView>(); };
     btn_back_.on_select = [this](Button&) { nav_.pop(); };
 }
@@ -375,64 +327,6 @@ void TinfoilHatResultsView::refresh_summary() {
 }
 
 // ── Grading / leaderboard ───────────────────────────────────────────────────
-TinfoilHatGradingView::TinfoilHatGradingView(NavigationView& nav)
-    : nav_{nav} {
-    add_children({&lbl_title_, &field_category_, &lbl_hint_, &menu_, &btn_back_});
-    btn_back_.on_select = [this](Button&) { nav_.pop(); };
-    field_category_.on_change = [this](size_t, OptionsField::value_t v) {
-        category_ = v;
-        rebuild_ranked();
-    };
-    reload();
-}
-
-void TinfoilHatGradingView::focus() {
-    field_category_.focus();
-}
-
-void TinfoilHatGradingView::reload() {
-    // Load each CSV as a full run and reduce to leaderboard fields — reuses
-    // load_test_csv (no separate header-only parser) to save code.
-    all_runs_.clear();
-    auto files = scan_root_files(u"TESTS", u"*.csv");
-    for (const auto& p : files) {
-        TestData d;
-        if (!load_test_csv(in_tests(p), d)) continue;
-        thl::RunInfo info;
-        info.contestant = d.contestant;
-        info.category = d.category;
-        info.score = thl::mean_attenuation(d.results);
-        info.path = in_tests(p).string();
-        all_runs_.push_back(info);
-    }
-    rebuild_ranked();
-}
-
-void TinfoilHatGradingView::rebuild_ranked() {
-    const std::string cat = (category_ == 1) ? "Hybrid" : "Classic";
-    ranked_ = thl::rank_best_per_contestant(all_runs_, cat);
-
-    menu_.clear();
-    for (size_t i = 0; i < ranked_.size(); ++i) {
-        const auto& run = ranked_[i];
-        std::string label = to_string_dec_uint(i + 1, 2) + " " + run.contestant + "  " +
-                            to_string_dec_int((int)run.score) + "dB";
-        Color col = (i == 0) ? Color::yellow() : Color::white();
-        menu_.add_item({label, col, nullptr, [this, i](KeyEvent) { on_select(i); }});
-    }
-    lbl_hint_.set(ranked_.empty() ? "no runs" : "sel=view");
-    set_dirty();
-}
-
-void TinfoilHatGradingView::on_select(size_t i) {
-    // Open the selected run's chart. (Head-to-head compare lives in the web
-    // viewer.)
-    if (i >= ranked_.size()) return;
-    TestData d;
-    if (!load_test_csv(ranked_[i].path, d)) return;
-    nav_.push<TinfoilHatResultsView>(std::move(d), false);
-}
-
 // ── Settings ────────────────────────────────────────────────────────────────
 TinfoilHatSettingsView::TinfoilHatSettingsView(NavigationView& nav)
     : nav_{nav} {

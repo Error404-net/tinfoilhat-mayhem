@@ -73,8 +73,6 @@ class ChartWidget : public Widget {
 float apply_calibration(int32_t max_db);
 // Save a TestData to TESTS/TH_????.csv; returns the saved filename ("" on fail).
 std::string save_test_csv(const TestData& data);
-// Load a CSV into TestData (freqs+results+meta). Returns false on failure.
-bool load_test_csv(const std::filesystem::path& path, TestData& out);
 
 // ── Menu (app entry) ────────────────────────────────────────────────────────
 class TinfoilHatMenuView : public View {
@@ -87,10 +85,10 @@ class TinfoilHatMenuView : public View {
     NavigationView& nav_;
 
     Text title_{{0, 24, screen_width, 16}, "TINFOIL HAT"};
-    Button btn_start_{{16, 60, screen_width - 32, 30}, "Start Test"};
-    Button btn_grading_{{16, 100, screen_width - 32, 30}, "Leaderboard"};
-    Button btn_settings_{{16, 140, screen_width - 32, 30}, "Settings"};
-    Button btn_back_{{16, 220, screen_width - 32, 30}, "Back"};
+    Button btn_start_{{16, 70, screen_width - 32, 36}, "Start Test"};
+    Button btn_settings_{{16, 120, screen_width - 32, 36}, "Settings"};
+    Text lbl_viewer_{{0, 180, screen_width, 32}, "Leaderboard: see viewer.html"};
+    Button btn_back_{{16, 230, screen_width - 32, 36}, "Back"};
 };
 
 // ── Scan (category select -> baseline -> hat) ───────────────────────────────
@@ -181,35 +179,9 @@ class TinfoilHatResultsView : public View {
 // (On-device head-to-head compare removed to fit the 32KB external-app cap —
 //  the companion web viewer does multi-run compare via row multi-select.)
 
-// (Review+rename removed to fit the 32KB cap — open a saved run from the
-//  Leaderboard, and use the web viewer for full review/rename.)
-
-// ── Grading / leaderboard (Classic vs Hybrid, best per contestant) ──────────
-class TinfoilHatGradingView : public View {
-   public:
-    TinfoilHatGradingView(NavigationView& nav);
-    void focus() override;
-    std::string title() const override { return "TinfoilHat"; }
-
-   private:
-    NavigationView& nav_;
-    std::vector<thl::RunInfo> all_runs_;
-    std::vector<thl::RunInfo> ranked_;
-    int32_t category_{0};  // 0 Classic, 1 Hybrid
-
-    void reload();
-    void rebuild_ranked();
-    void on_select(size_t i);
-
-    Text lbl_title_{{0, 12, screen_width, 16}, "LEADERBOARD"};
-    OptionsField field_category_{
-        {8, 32},
-        8,
-        {{"Classic", 0}, {"Hybrid", 1}}};
-    Text lbl_hint_{{120, 32, screen_width - 120, 16}, "sel=view"};
-    MenuView menu_{{0, 56, screen_width, 224}, true};
-    Button btn_back_{{16, 286, screen_width - 32, 28}, "Back"};
-};
+// (Review+rename removed to fit the 32KB cap.)
+// (Leaderboard removed to fit the 32KB cap — full leaderboard with sort,
+//  filter, and head-to-head compare is in the companion viewer.html.)
 
 // ── Settings ────────────────────────────────────────────────────────────────
 class TinfoilHatSettingsView : public View {
