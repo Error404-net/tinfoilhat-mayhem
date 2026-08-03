@@ -172,9 +172,7 @@ void TinfoilHatScanView::focus() {
 void TinfoilHatScanView::configure_radio() {
     baseband::run_image(portapack::spi_flash::image_tag_nfm_audio);
     receiver_model.set_modulation(ReceiverModel::Mode::NarrowbandFMAudio);
-    receiver_model.set_nbfm_configuration(2);  // 16k, matches Level default
-    receiver_model.set_sampling_rate(3072000);
-    receiver_model.set_baseband_bandwidth(1750000);
+    receiver_model.set_nbfm_configuration(2);  // 16k; sets sampling_rate+bandwidth internally
     receiver_model.set_lna(lna_gain_);
     receiver_model.set_vga(vga_gain_);
     receiver_model.set_rf_amp(rf_amp_ != 0);
