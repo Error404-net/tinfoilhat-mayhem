@@ -17,7 +17,13 @@
 #include <string>
 #include <vector>
 
-namespace tinfoilhat {
+// Namespace MUST be ui::external_app::tinfoilhat (not a plain ::tinfoilhat):
+// the firmware's external.ld pulls app code into the .ppma by matching mangled
+// section names against *ui*external_app*tinfoilhat*. Symbols in any other
+// namespace land in the MAIN firmware image instead — the .ppma then calls
+// addresses that don't exist on a stock-firmware device and hardfaults at
+// launch. Header stays STL-only/firmware-independent regardless of namespace.
+namespace ui::external_app::tinfoilhat {
 
 // ── Bands (flyer: HF 2-30, VHF 30-300, UHF 300-3000, SHF 3000-5900 MHz) ──────
 enum class Band { HF = 0, VHF = 1, UHF = 2, SHF = 3 };
@@ -186,4 +192,4 @@ inline std::vector<RunInfo> rank_best_per_contestant(const std::vector<RunInfo>&
     return best;
 }
 
-}  // namespace tinfoilhat
+}  // namespace ui::external_app::tinfoilhat

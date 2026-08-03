@@ -93,7 +93,7 @@ jobs:
               sec_block = (
                   "\n    .external_app_tinfoilhat : ALIGN(4) SUBALIGN(4)\n    {\n"
                   "        KEEP(*(.external_app.app_tinfoilhat.application_information));\n"
-                  "        */external/tinfoilhat/*(*ui*external_app*tinfoilhat*);\n"
+                  "        *(*ui*external_app*tinfoilhat*);\n"
                   "    } > ram_external_app_tinfoilhat\n")
               t = t[:sec_anchor.end()] + sec_block + t[sec_anchor.end():]
               ld.write_text(t)

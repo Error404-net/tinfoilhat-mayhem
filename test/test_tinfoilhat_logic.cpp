@@ -6,7 +6,7 @@
 #include <cmath>
 #include <cstdio>
 
-using namespace tinfoilhat;
+using namespace ui::external_app::tinfoilhat;
 
 static bool close(float a, float b) { return std::fabs(a - b) < 0.05f; }
 

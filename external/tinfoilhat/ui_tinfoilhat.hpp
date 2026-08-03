@@ -27,7 +27,9 @@
 
 namespace ui::external_app::tinfoilhat {
 
-namespace thl = ::tinfoilhat;
+// Logic lives in this same namespace now (linker-section requirement — see
+// tinfoilhat_logic.hpp); keep the thl:: spelling used throughout.
+namespace thl = ::ui::external_app::tinfoilhat;
 
 // Compile-time tuning knobs. ponytail: settle/avg counts are message windows,
 // not ms; tune on real hardware if readings are noisy — promote to settings if

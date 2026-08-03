@@ -56,3 +56,5 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+sim_out/
+simulator/build*/
