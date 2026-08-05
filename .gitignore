@@ -41,6 +41,9 @@ package/
 a.out
 thtest
 /tmp/thtest
+simulator
+/test
+
 
 # ── Environment / tooling ────────────────────────────────────────────────────
 node_modules/

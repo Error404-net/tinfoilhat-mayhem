@@ -124,6 +124,7 @@ static bool run_external_app_sim(const std::string& path) {
 
     SimRam ram;
     uint32_t checksum = 0;
+    bool bounds_ok = true;
     app.seek(0);
 
     if (hdr.m4_app_offset != 0) {
@@ -164,15 +165,35 @@ static bool run_external_app_sim(const std::string& path) {
                first, last_end, M4_CODE_BASE, M4_CODE_BASE + (uint32_t)(last_end - first),
                last_end - first);
 
-        // Diagnostics: overlaps & bounds
+        // Diagnostics: overlaps & bounds. These are not cosmetic — the m4 copy
+        // runs *after* the app image copy, so any overlap means the tail of
+        // the baseband image silently clobbers the start of the app's own
+        // code/data right before the loader jumps to it. Treat as fatal.
         uint32_t m4_end = M4_CODE_BASE + (uint32_t)(last_end - first);
-        if (m4_end > hdr.memory_location)
-            printf("  NOTE: m4 copy end 0x%08X overlaps app image start 0x%08X by %u bytes\n",
+        if (m4_end > hdr.memory_location) {
+            printf("  FATAL: m4 copy end 0x%08X overlaps app image start 0x%08X by %u bytes"
+                   " (app's own code gets clobbered post-copy)\n",
                    m4_end, hdr.memory_location, m4_end - hdr.memory_location);
-        if (m4_end > M4_CODE_END)
-            printf("  WARN: m4 image exceeds 32KB m4_code region end 0x%08X\n", M4_CODE_END);
-        if (hdr.memory_location + hdr.m4_app_offset > LOCAL_SRAM_END)
-            printf("  WARN: app image exceeds local_sram_1 end 0x%08X\n", LOCAL_SRAM_END);
+            bounds_ok = false;
+        }
+        if (m4_end > M4_CODE_END) {
+            printf("  FATAL: m4 image exceeds 32KB m4_code region end 0x%08X\n", M4_CODE_END);
+            bounds_ok = false;
+        }
+        if (hdr.memory_location + hdr.m4_app_offset > LOCAL_SRAM_END) {
+            printf("  FATAL: app image exceeds local_sram_1 end 0x%08X\n", LOCAL_SRAM_END);
+            bounds_ok = false;
+        }
+        // An app whose own region starts inside the M4 scratch window is a
+        // ticking time bomb even if this particular build's baseband image
+        // happens not to reach far enough to clobber it — the next rebuild
+        // (bigger image, different codec) will. Flag it outright.
+        if (hdr.memory_location < M4_CODE_END) {
+            printf("  FATAL: app memory_location 0x%08X is inside the M4 scratch window"
+                   " [0x%08X..0x%08X) — any m4 image close to 32KB will clobber app code\n",
+                   hdr.memory_location, M4_CODE_BASE, M4_CODE_END);
+            bounds_ok = false;
+        }
     } else {
         size_t readValue = 0;
         for (size_t i = 0; i < 80 * max_file_block_size; i += max_file_block_size) {
@@ -183,13 +204,21 @@ static bool run_external_app_sim(const std::string& path) {
         }
     }
 
-    if (ram.oob)
-        printf("  WARN: write outside local_sram_1 detected, first at 0x%08X\n", ram.oob_addr);
+    if (ram.oob) {
+        printf("  FATAL: write outside local_sram_1 detected, first at 0x%08X\n", ram.oob_addr);
+        bounds_ok = false;
+    }
 
-    printf("  checksum = 0x%08X  ->  %s\n\n", checksum,
-           checksum == EXT_APP_EXPECTED_CHECKSUM ? "LOAD OK (app would launch)"
-                                                 : "FAIL (\"can't be read\" modal)");
-    return checksum == EXT_APP_EXPECTED_CHECKSUM;
+    bool checksum_ok = (checksum == EXT_APP_EXPECTED_CHECKSUM);
+    const char* verdict;
+    if (!checksum_ok)
+        verdict = "FAIL (\"can't be read\" modal)";
+    else if (!bounds_ok)
+        verdict = "FAIL (loader would accept the file, but it corrupts itself on load — see FATAL lines above)";
+    else
+        verdict = "LOAD OK (app would launch)";
+    printf("  checksum = 0x%08X  ->  %s\n\n", checksum, verdict);
+    return checksum_ok && bounds_ok;
 }
 
 int main(int argc, char** argv) {

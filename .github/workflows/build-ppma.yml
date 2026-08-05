@@ -76,12 +76,30 @@ jobs:
 
           # 2) external.ld — dedicated MEMORY region + SECTIONS block. Each app
           #    needs a unique 32k RAM window; pick the next free 64k slot.
+          #
+          #    Guard: the loader stages the M4 baseband image at a fixed
+          #    M4_CODE_BASE..M4_CODE_BASE+32k scratch window (0x10080000 to
+          #    0x10088000), and that copy runs *after* the app image copy. If
+          #    an app's own memory_location falls inside that window, the tail
+          #    of its baseband image silently clobbers the start of its own
+          #    just-loaded code right before the loader jumps to it -- a
+          #    hardfault that is invisible until the baseband image happens to
+          #    grow large enough to reach the overlap. Confirmed on this repo
+          #    via simulator/loader_sim.cpp against a real built .ppma (see
+          #    that tool's FATAL overlap checks). Clamp nxt so this app's
+          #    region can never start inside the scratch window, regardless of
+          #    where earlier apps in the tree happen to be registered.
           ld = pathlib.Path("mayhem/firmware/application/external/external.ld")
           t = ld.read_text()
           if "ram_external_app_tinfoilhat" not in t:
               orgs = [int(x, 16) for x in re.findall(
                   r'ram_external_app_\w+\s+\(rwx\)\s*:\s*org\s*=\s*0x([0-9A-Fa-f]+)', t)]
+              M4_CODE_BASE = 0x10080000
+              M4_CODE_END = M4_CODE_BASE + 32 * 1024
               nxt = max(orgs) + 0x10000
+              if nxt < M4_CODE_END:
+                  print("clamping tinfoilhat org 0x%08X -> 0x%08X (M4 scratch window guard)" % (nxt, M4_CODE_END))
+                  nxt = M4_CODE_END
               region = "    ram_external_app_tinfoilhat            (rwx) : org = 0x%08X, len = 32k\n" % nxt
 
               m = re.search(r'    ram_external_app_level\s+\(rwx\)\s*:\s*org\s*=\s*0x[0-9A-Fa-f]+, len = 32k\n', t)
@@ -138,6 +156,16 @@ jobs:
           cp "$src" out/tinfoilhat.ppma
           cp app/external/tinfoilhat/viewer.html out/viewer.html  # drop next to CSVs in SD /TESTS/
           ls -l out
+
+      # Gate: replay the exact v2.4.0 run_external_app() copy loops against the
+      # artifact we're about to ship and fail the build if the checksum is bad
+      # OR the app's own memory region overlaps the M4 baseband scratch window
+      # (see the external.ld guard above -- this is the check that would have
+      # caught a bad build before it ever reached a device).
+      - name: Verify artifact with loader_sim
+        run: |
+          g++ -std=c++17 app/simulator/loader_sim.cpp -o /tmp/loader_sim
+          /tmp/loader_sim out/tinfoilhat.ppma
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
