@@ -37,16 +37,30 @@ and flyers disagree, the flyers win.
 
 ## Build & Test
 
-- **Host self-check (runs anywhere, no firmware toolchain):**
-  `g++ -std=c++17 test/test_tinfoilhat_logic.cpp -o /tmp/thtest && /tmp/thtest`
-  Any change to scoring/CSV/leaderboard logic must keep this green. Add asserts
-  here rather than only testing on-device.
-- **Firmware `.ppma`:** cannot be compiled in this repo — it needs the Mayhem
-  toolchain. Either push and let `build-ppma.yml` produce it, or manually clone
-  mayhem-firmware, copy `external/tinfoilhat/` in, apply `external.cmake.patch`,
-  and run the Docker build (`docker build -f dockerfile-nogit .` then
-  `docker run -i -v "$PWD:/havoc" portapack-dev`). Output:
-  `build/firmware/application/tinfoilhat.ppma`. Install = drop it in SD `/APPS/`.
+Recommended local test loop (no ARM toolchain needed):
+
+1. **Logic self-check** — pure scoring/CSV/leaderboard:
+   ```
+   g++ -std=c++17 test/test_tinfoilhat_logic.cpp -o /tmp/thtest && /tmp/thtest
+   ```
+   Must stay green on every change. Add new assertions here, not on-device.
+
+2. **Host simulator** — full UI logic against stub Mayhem headers:
+   ```
+   cmake -B simulator/build -S simulator && cmake --build simulator/build
+   ./simulator/build/tinfoilhat-sim
+   ```
+   Runs menu → scan (fake RF) → results → CSV write without the ARM toolchain.
+   Source files: `simulator/` (stubs + driver) and `simulator/loader_sim.cpp`
+   (replay of the exact v2.4.0 ppma loader — use it to validate any built ppma
+   before flashing: `g++ -std=c++17 simulator/loader_sim.cpp -o /tmp/ls && /tmp/ls release/tinfoilhat.ppma`).
+
+3. **Firmware `.ppma`:** push to CI — `build-ppma.yml` grafts the app into a
+   fresh Mayhem v2.4.0 checkout, runs the Docker ARM build, gates the output
+   through `loader_sim`, and uploads the artifact. Manual build: clone
+   mayhem-firmware, copy `external/tinfoilhat/` in, apply `external.cmake.patch`,
+   run `docker build -f dockerfile-nogit . && docker run -i -v "$PWD:/havoc" portapack-dev`.
+   Output: `build/firmware/application/tinfoilhat.ppma`. Install: drop in SD `/APPS/`.
 
 ## Architecture Notes
 
